@@ -4,8 +4,28 @@ import re
 root = Path(__file__).resolve().parent.parent
 html = (root / 'index.html').read_text()
 css = (root / 'style.css').read_text()
-game = (root / 'game.js').read_text()
-game = re.sub(r'^import .*?;\n', '', game, count=1)
+def source(name):
+    return re.sub(r'^import[^\n]*;\s*\n', '', (root / name).read_text(), flags=re.M)
+
+def module(name, exports, prelude=''):
+    body = re.sub(r'\bexport\s+(?=(?:const|let|class|function|async)\b)', '', source(name))
+    if name == 'art.js':
+        import base64
+        for asset in ('equipment-atlas.png', 'materials-atlas.png'):
+            data = base64.b64encode((root / 'assets' / asset).read_bytes()).decode()
+            body = body.replace("'assets/" + asset + "'", "'data:image/png;base64," + data + "'")
+    return '(() => {\n' + prelude + '\n' + body + '\nreturn {' + ','.join(exports) + '};\n})();'
+
+world_names = ['BLOCKS','VoxelWorld','WORLD_MIN_Y','WORLD_MAX_Y','WORLD_CHUNK','hash3']
+item_names = ['itemDefs','recipes','drawItemIcon','setItemAtlas','equipmentSlots','smeltingRecipes']
+art_names = ['loadGeneratedArt','generatedArtSheets']
+game = 'const WorldModule = ' + module('world.js', world_names) + '\n'
+game += 'const {' + ','.join(world_names) + '} = WorldModule;\n'
+game += 'const LegacyModule = ' + module('legacy-world.js', ['createLegacyWorld']) + '\nconst {createLegacyWorld} = LegacyModule;\n'
+game += 'const ItemsModule = ' + module('items.js', item_names, 'const B = WorldModule.BLOCKS;') + '\nconst {' + ','.join(item_names) + '} = ItemsModule;\n'
+game += 'const ArtModule = ' + module('art.js', art_names) + '\nconst {' + ','.join(art_names) + '} = ArtModule;\n'
+game += 'const SaveModule = ' + module('save.js', ['validateSnapshot','migrateV5']) + '\nconst {validateSnapshot,migrateV5} = SaveModule;\n'
+game += source('game.js')
 library = (root / 'vendor/three.module.js').read_text()
 library, count = re.subn(r'\nexport \{[^}]+\};\s*$', '', library)
 assert count == 1, 'Unexpected Three.js export layout'

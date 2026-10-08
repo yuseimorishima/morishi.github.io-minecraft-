@@ -1,17 +1,23 @@
 import * as THREE from './vendor/three.module.js';
+import { BLOCKS, VoxelWorld, WORLD_MIN_Y, WORLD_MAX_Y, WORLD_CHUNK, hash3 } from './world.js';
+import { createLegacyWorld } from './legacy-world.js';
+import { loadGeneratedArt } from './art.js';
+import { validateSnapshot, migrateV5 } from './save.js';
+import { itemDefs, recipes, drawItemIcon, setItemAtlas, equipmentSlots, smeltingRecipes } from './items.js';
 
 const $ = id => document.getElementById(id);
-const N = 64, OFFSET = N / 2, MIN_Y = -48, MAX_Y = 64, BODY = 1.7, CHUNK = 8;
-const T = { AIR: 0, DIRT: 1, STONE: 2, GRASS: 3, SNOW: 4, WOOD: 5, ROOF: 6, RUIN: 7, BEDROCK: 8, LEAVES: 9, PLANK: 10, COBBLE: 11, COAL: 12, IRON: 13, GOLD: 14, DEEP: 15, TABLE: 16, FURNACE: 17, CHEST: 18, GLASS: 19, SAND: 20, GLOW: 21, WATER: 22, TORCH: 23 };
-const plane = N * N, volume = plane * (MAX_Y - MIN_Y);
-const inside = (x, z) => x >= 0 && z >= 0 && x < N && z < N;
-const inWorld = (x, y, z) => inside(x, z) && y >= MIN_Y && y < MAX_Y;
-const id = (x, z) => z * N + x;
-const index = (x, y, z) => (y - MIN_Y) * plane + id(x, z);
-const cellAt = (x, z) => ({ x: Math.floor(x + OFFSET), z: Math.floor(z + OFFSET) });
-const world = new Uint8Array(volume), edits = new Map(), heights = [];
-const voxel = (x, y, z) => inWorld(x, y, z) ? world[index(x, y, z)] : T.AIR;
-const put = (x, y, z, type) => { if (inWorld(x, y, z)) world[index(x, y, z)] = type; };
+const N=64,OFFSET=32,MIN_Y=WORLD_MIN_Y,MAX_Y=WORLD_MAX_Y,BODY=1.7,CHUNK=WORLD_CHUNK,T=BLOCKS;
+const legacy=createLegacyWorld(T);
+const world=new VoxelWorld({seed:3,legacy,maxCachedChunks:180}),edits=world.edits;
+const inside=(x,z)=>Number.isSafeInteger(x)&&Number.isSafeInteger(z);
+const inWorld=(x,y,z)=>inside(x,z)&&Number.isInteger(y)&&y>=MIN_Y&&y<MAX_Y;
+const index=(x,y,z)=>`${x},${y},${z}`;
+const decodeKey=key=>key.split(',').map(Number);
+const cellAt=(x,z)=>({x:Math.floor(x+OFFSET),z:Math.floor(z+OFFSET)});
+const voxel=(x,y,z)=>world.voxel(x,y,z);
+const height=(x,z)=>world.height(x,z);
+const inCave=(wx,wz,feet)=>{const c=cellAt(wx,wz);return world.isCave(c.x,Math.floor(feet),c.z)||world.isCave(c.x,Math.floor(feet+1),c.z);};
+const hash=(x,y,z)=>hash3(x,y,z,3);
 const scene = new THREE.Scene(); scene.background = new THREE.Color('#a4d8ed'); scene.fog = new THREE.Fog('#a4d8ed', 42, 115);
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, .05, 170); camera.rotation.order = 'YXZ';
 let renderer;
@@ -30,7 +36,7 @@ function texture(kind, base, palette) {
   if(kind==='wood'){for(let x=2;x<16;x+=4){g.fillStyle='#49321f';g.fillRect(x,0,1,16);}}
   if(kind==='end'){for(let k=1;k<8;k+=2){g.strokeStyle=k%4===1?'#654524':'#b59355';g.strokeRect(k,k,16-k*2,16-k*2);}}
   if(kind==='cobble'){g.strokeStyle='#444746';for(let y=0;y<16;y+=5){g.beginPath();g.moveTo(0,y);g.lineTo(16,y);g.stroke();for(let x=(y%2)*3;x<16;x+=7)g.strokeRect(x,y,7,5);}}
-  if(['coal','iron','gold','glow'].includes(kind)){const color={coal:'#262725',iron:'#c69670',gold:'#efc347',glow:'#ab80de'}[kind];for(const [x,y]of[[2,3],[8,2],[11,9],[4,11],[7,7]]){g.fillStyle=color;g.fillRect(x,y,3,2);g.fillStyle=kind==='coal'?'#111510':'#f1d9b4';g.fillRect(x,y,1,1);}}
+  if(['coal','iron','gold','glow','diamond','emerald','redstone','lapis','copper'].includes(kind)){const color={coal:'#262725',iron:'#c69670',gold:'#efc347',glow:'#ab80de',diamond:'#54d9e5',emerald:'#48d28a',redstone:'#cf4744',lapis:'#426ed2',copper:'#bd885c'}[kind];for(const [x,y]of[[2,3],[8,2],[11,9],[4,11],[7,7]]){g.fillStyle=color;g.fillRect(x,y,3,2);g.fillStyle=kind==='coal'?'#111510':'#f1d9b4';g.fillRect(x,y,1,1);}}
   if(kind==='grassSide'){g.fillStyle='#659338';g.fillRect(0,0,16,3);for(let x=0;x<16;x+=3)g.fillRect(x,3,2,1+x%3);}
   if(kind==='table'){g.fillStyle='#453223';g.fillRect(2,2,12,12);g.strokeStyle='#c19b61';for(let i=2;i<15;i+=4){g.beginPath();g.moveTo(i,2);g.lineTo(i,14);g.moveTo(2,i);g.lineTo(14,i);g.stroke();}}
   if(kind==='furnace'){g.fillStyle='#252929';g.fillRect(3,3,10,3);g.fillRect(3,9,10,5);g.fillStyle='#676b69';g.fillRect(4,10,8,1);}
@@ -62,104 +68,24 @@ material(T.SAND,'sand','#dbc69b',['#caba93','#e8d7b2']);
 material(T.GLOW,'glow','#6f5797',['#8566b0','#514067'],{emissive:0x8054bf,emissiveIntensity:.5});
 material(T.WATER,'water','#4a83b2',['#659cc5','#386fa0'],{transparent:true,opacity:.62,depthWrite:false});
 material(T.TORCH,'wood','#bc8437',['#ffc95e','#825622'],{emissive:0xe9972e,emissiveIntensity:1});
+for(const[type,kind,base,palette]of [
+ [T.DIAMOND,'diamond','#656b74',['#81878e','#515862']], [T.EMERALD,'emerald','#69736d',['#808a80','#525d54']],
+ [T.REDSTONE,'redstone','#5d616a',['#757984','#484d56']], [T.LAPIS,'lapis','#616976',['#7e8898','#4c5461']], [T.COPPER,'copper','#85857e',['#9a9b90','#6d7268']],
+ [T.COPPER_BLOCK,'metal','#bd845c',['#d9a077','#925936']], [T.IRON_BLOCK,'metal','#b9c5c5',['#dbe4e0','#95a5a6']], [T.GOLD_BLOCK,'metal','#e6b33d',['#f6d66c','#b88728']],
+ [T.DIAMOND_BLOCK,'metal','#49bfc9',['#80e4e4','#278a96']], [T.EMERALD_BLOCK,'metal','#39b570',['#6cd796','#208255']],
+ [T.OBSIDIAN,'stone','#332c41',['#4f3c66','#201d2d']], [T.BRICK,'brick','#af6752',['#c88565','#815044']], [T.BOOKSHELF,'bookcase','#b28b50',['#cfaa65','#815f31']],
+ [T.CACTUS,'cactus','#54803a',['#709f4b','#376929']], [T.MUSHROOM,'mushroom','#b64b3c',['#efcfbd','#723a30']], [T.BASALT,'stone','#484d50',['#606668','#333a3d']],
+ [T.CLAY,'stone','#94a4b0',['#aebac0','#7b8996']], [T.SNOW_LOG,'wood','#674a2b',['#81613b','#493824']], [T.PINE_LEAVES,'leaves','#38674b',['#4c8162','#285839']],
+ [T.JUNGLE_LOG,'wood','#aa7552',['#c59169','#87583f']], [T.JUNGLE_LEAVES,'leaves','#548b30',['#72a43d','#427721']], [T.RED_SAND,'sand','#bb7b45',['#d29759','#a36538']],
+ [T.ICE,'ice','#9bc9da',['#bce3eb','#76b3ca']], [T.LAVA,'lava','#ed7627',['#feb349','#a8381d']], [T.WOOL,'wool','#dedbd0',['#f2eee3','#c5c2b8']],
+])material(type,kind,base,palette,type===T.ICE?{transparent:true,opacity:.7}:type===T.LAVA?{emissive:0xfc7521,emissiveIntensity:.9}:{});
 const grassSide=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture('grassSide','#87633f',['#a48055','#67492f']),vertexColors:true}));
 const woodEnd=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture('end','#b08e54',['#c5a76b','#99763e']),vertexColors:true}));
 const metal = new THREE.MeshLambertMaterial({ color: '#dce0d8' }), wood = new THREE.MeshLambertMaterial({ color: '#805233' });
-const solidType=t=>t!==T.AIR&&t!==T.WATER&&t!==T.TORCH;
+const solidType=t=>![T.AIR,T.WATER,T.LAVA,T.TORCH,T.MUSHROOM].includes(t);
 const solid=(x,y,z)=>solidType(voxel(x,y,z));
-const deepOreMaterials={};for(const [type,kind]of [[T.COAL,'coal'],[T.IRON,'iron'],[T.GOLD,'gold']]){deepOreMaterials[type]=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture(kind,'#515560',['#656973','#424651']),vertexColors:true}));}
+const deepOreMaterials={};for(const [type,kind]of [[T.COAL,'coal'],[T.IRON,'iron'],[T.GOLD,'gold'],[T.DIAMOND,'diamond'],[T.EMERALD,'emerald'],[T.REDSTONE,'redstone'],[T.LAPIS,'lapis'],[T.COPPER,'copper']]){deepOreMaterials[type]=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture(kind,'#515560',['#656973','#424651']),vertexColors:true}));}
 const cube = new THREE.BoxGeometry(1, 1, 1);
-for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
-  const main = 40 * Math.exp(-((x - 44) ** 2 + (z - 43) ** 2) / 190);
-  const ridge = 24 * Math.exp(-((x - 49) ** 2 + (z - 19) ** 2) / 90);
-  const valley = 4 * Math.exp(-((x - 14) ** 2 + (z - 46) ** 2) / 120);
-  const h = Math.max(3, Math.floor(9 + main + ridge - valley + 1.8 * Math.sin(x * .19) * Math.cos(z * .16)));
-  heights.push(h);
-  for (let y = MIN_Y; y < h; y++) put(x, y, z, y === MIN_Y ? T.BEDROCK : h >= 37 && y >= h - 3 ? T.SNOW : h >= 22 ? T.STONE : y === h - 1 ? T.GRASS : y >= h - 3 ? T.DIRT : T.STONE);
-}
-// Seeded value noise distorts ellipsoids; overlapping curved worms form branches.
-const hash=(x,y,z)=>{let n=Math.imul(x,374761393)^Math.imul(y,668265263)^Math.imul(z,2147483647);n=Math.imul(n^(n>>>13),1274126177);return((n^(n>>>16))>>>0)/4294967295;};
-function noise(x,y,z){const ix=Math.floor(x),iy=Math.floor(y),iz=Math.floor(z),smooth=t=>t*t*(3-2*t),fx=smooth(x-ix),fy=smooth(y-iy),fz=smooth(z-iz);let v=0;for(let a=0;a<2;a++)for(let b=0;b<2;b++)for(let c=0;c<2;c++)v+=hash(ix+a,iy+b,iz+c)*(a?fx:1-fx)*(b?fy:1-fy)*(c?fz:1-fz);return v;}
-const caveMask=new Uint8Array(volume),caveCells=new Map();
-function carve(cx,cy,cz,rx,ry,rz){for(let z=Math.max(1,Math.floor(cz-rz-2));z<Math.min(N-1,cz+rz+2);z++)for(let x=Math.max(1,Math.floor(cx-rx-2));x<Math.min(N-1,cx+rx+2);x++)for(let y=Math.max(MIN_Y+3,Math.floor(cy-ry-2));y<Math.min(heights[id(x,z)]-4,cy+ry+2);y++){
- const r=((x+.5-cx)/rx)**2+((y+.5-cy)/ry)**2+((z+.5-cz)/rz)**2;
- if(r<.84+(noise(x*.29,y*.32,z*.29)-.5)*.65){put(x,y,z,T.AIR);caveMask[index(x,y,z)]=1;}
-}}
-function worm(points,radius=2.7){for(let i=1;i<points.length;i++){const a=points[i-1],b=points[i],steps=Math.ceil(Math.hypot(...a.map((v,k)=>v-b[k]))*2);for(let j=0;j<=steps;j++){const t=j/steps,p=a.map((v,k)=>v+(b[k]-v)*t);const r=radius*(.88+.2*Math.sin((i+t)*3));carve(...p,r,r*.86,r);}}}
-// The starting chamber is buried beneath the ruins: players dig to discover it.
-worm([[33.5,0,35.5],[37,-4,38],[42,-8,36],[47,-13,40],[44,-18,45],[39,-24,44]],3.1);
-worm([[42,-8,36],[48,-9,31],[52,-14,26],[47,-19,22],[39,-21,26]],2.5);
-worm([[39,-24,44],[32,-27,47],[25,-30,43],[23,-33,35],[29,-35,29],[38,-32,30],[44,-29,36]],3);
-worm([[32,-27,47],[28,-25,53],[18,-22,51],[13,-18,43],[17,-14,35],[24,-10,31]],2.4);
-worm([[47,-13,40],[54,-17,44],[54,-24,51],[48,-30,54],[40,-33,49],[39,-24,44]],2.8);
-worm([[24,-10,31],[19,-5,26],[12,-2,29],[9,-5,36]],2.4);
-function cavern(cx,cy,cz,rx,ry,rz){for(let z=Math.floor(cz-rz-2);z<=cz+rz+2;z++)for(let x=Math.floor(cx-rx-2);x<=cx+rx+2;x++){const r=((x+.5-cx)/rx)**2+((z+.5-cz)/rz)**2;if(r>1+(noise(x*.3,cy*.3,z*.3)-.5)*.38)continue;const edge=Math.sqrt(Math.max(0,1-r)),floor=Math.floor(cy-ry*.7+(1-edge)*3+(noise(x*.26,8,z*.26)-.5)*3),roof=Math.floor(cy+ry*edge+(noise(x*.3,5,z*.3)-.5)*3);for(let y=Math.max(MIN_Y+3,floor);y<Math.min(roof,heights[id(x,z)]-4);y++){put(x,y,z,T.AIR);caveMask[index(x,y,z)]=1;}}}
-cavern(39,-20,43,10,10,9);cavern(26,-29,36,8,7,9);cavern(48,-27,50,7,9,7);carve(18,-19,48,5,4,6);
-// Stone pillars and shelves survive inside larger caverns.
-for(const [x,z]of[[38,42],[42,45],[25,36],[49,50]])for(let y=-40;y<-8;y++)if(caveMask[index(x,y,z)]&&noise(x*.2,y*.17,z*.2)>.27){put(x,y,z,y<-16?T.DEEP:T.STONE);caveMask[index(x,y,z)]=0;}
-for(let z=0;z<N;z++)for(let x=0;x<N;x++){const intervals=[];let start=null;for(let y=MIN_Y+1;y<MAX_Y;y++){if(caveMask[index(x,y,z)]){if(start===null)start=y;}else if(start!==null){intervals.push({floor:start,ceiling:y});start=null;}}if(intervals.length)caveCells.set(id(x,z),intervals);}
-function caveAt(x,z){return caveCells.get(id(x,z))?.at(-1);}
-function inCave(wx,wz,feet){const c=cellAt(wx,wz);return [Math.floor(feet),Math.floor(feet+1)].some(y=>inWorld(c.x,y,c.z)&&caveMask[index(c.x,y,c.z)]);}
-// Mineral veins use correlated noise instead of isolated random dots.
-for(let z=1;z<N-1;z++)for(let x=1;x<N-1;x++)for(let y=MIN_Y+1;y<heights[id(x,z)]-3;y++)if(voxel(x,y,z)===T.STONE){
- let t=y<-16?T.DEEP:T.STONE;
- if(noise(x*.53,y*.51,z*.53)>.74)t=T.COAL;
- if(y<12&&noise((x+73)*.6,y*.6,(z+29)*.6)>.75)t=T.IRON;
- if(y<-23&&noise((x+141)*.6,y*.6,(z+137)*.6)>.8)t=T.GOLD;
- put(x,y,z,t);
-}
-const structures = [];
-function fillBox(x0, y0, z0, sx, sy, sz, type) { for (let z = z0; z < z0 + sz; z++) for (let x = x0; x < x0 + sx; x++) for (let y = y0; y < y0 + sy; y++) put(x, y, z, type); }
-function flatten(x0, z0, sx, sz, level) {
-  for (let z = z0; z < z0 + sz; z++) for (let x = x0; x < x0 + sx; x++) {
-    for (let y = MIN_Y + 1; y < MAX_Y; y++) if (y >= level) put(x, y, z, T.AIR); else if (y >= heights[id(x, z)] - 1) put(x, y, z, y === level - 1 ? T.GRASS : level >= 20 ? T.STONE : T.DIRT);
-    heights[id(x, z)] = level;
-  }
-}
-// Enterable timber cabin with a pitched roof and open windows.
-const cabinX = 13, cabinZ = 18, cabinY = heights[id(16, 21)];
-flatten(cabinX, cabinZ, 7, 7, cabinY);
-fillBox(cabinX, cabinY - 1, cabinZ, 7, 1, 7, T.WOOD);
-for (let y = cabinY; y < cabinY + 4; y++) for (let x = cabinX; x < cabinX + 7; x++) for (let z = cabinZ; z < cabinZ + 7; z++) {
-  if (x === cabinX || x === cabinX + 6 || z === cabinZ || z === cabinZ + 6) put(x, y, z, T.WOOD);
-}
-fillBox(cabinX + 3, cabinY, cabinZ, 1, 3, 1, T.AIR);
-for (const x of [cabinX, cabinX + 6]) fillBox(x, cabinY + 1, cabinZ + 2, 1, 2, 3, T.AIR);
-for (let layer = 0; layer < 4; layer++) fillBox(cabinX - 1 + layer, cabinY + 4 + layer, cabinZ - 1, 9 - layer * 2, 1, 9, T.ROOF);
-fillBox(cabinX + 1, cabinY, cabinZ + 5, 2, 1, 1, T.WOOD);
-structures.push({ name: '旅人の山小屋', x: 16, z: 21, y: cabinY });
-// A climbable open watchtower, with a spiral staircase and an observation deck.
-const towerX = 24, towerZ = 16, towerY = heights[id(26, 18)];
-flatten(towerX, towerZ, 5, 5, towerY);
-for (const dx of [0, 4]) for (const dz of [0, 4]) fillBox(towerX + dx, towerY, towerZ + dz, 1, 11, 1, T.WOOD);
-const spiral = [[1, 1], [2, 1], [3, 1], [3, 2], [3, 3], [2, 3], [1, 3], [1, 2]];
-fillBox(towerX, towerY + 9, towerZ, 5, 1, 5, T.WOOD);
-fillBox(towerX + 1, towerY + 9, towerZ + 1, 2, 1, 2, T.AIR);
-for (let i = 0; i < 10; i++) { const [dx, dz] = spiral[i % 8]; put(towerX + dx, towerY + i, towerZ + dz, T.WOOD); }
-for (let k = 0; k < 5; k++) for (const edge of [0, 4]) { put(towerX + k, towerY + 10, towerZ + edge, T.WOOD); put(towerX + edge, towerY + 10, towerZ + k, T.WOOD); }
-structures.push({ name: '風見の見張り塔', x: 26, z: 18, y: towerY + 10 });
-// Ruins are a digging landmark, not an already open entrance.
-const ruinX = 33, ruinZ = 35, ruinY = heights[id(ruinX, ruinZ)];
-flatten(ruinX - 3, ruinZ - 3, 7, 7, ruinY);
-for (const [dx, dz, h] of [[-3, -3, 4], [3, -3, 3], [-3, 3, 2], [3, 3, 4]]) fillBox(ruinX + dx, ruinY, ruinZ + dz, 1, h, 1, T.RUIN);
-for (let k = -2; k <= 2; k++) { put(ruinX + k, ruinY - 1, ruinZ - 2, T.RUIN); put(ruinX + k, ruinY - 1, ruinZ + 2, T.RUIN); }
-put(ruinX, ruinY - 1, ruinZ, T.DIRT);
-structures.push({ name: '地鳴りの遺跡', x: ruinX, z: ruinZ, y: ruinY });
-// A stair path reaches the ruins without opening the underground chamber.
-for (let z = 18; z < 32; z++) flatten(ruinX - 1, z, 3, 1, ruinY - (32 - z));
-// A shallow surface pond has sand banks that can be mined and smelted into glass.
-for(let z=47;z<=55;z++)for(let x=5;x<=14;x++){const r=((x-9.5)/5)**2+((z-51)/4)**2;if(r<1.25){const h=heights[id(x,z)];put(x,h-1,z,T.SAND);if(r<.55){put(x,h-2,z,T.SAND);put(x,h-1,z,T.WATER);}}}
-// Harvestable voxel trees: logs, leaves and a leafy canopy.
-for(const [x,z]of[[5,7],[9,31],[36,10],[39,29],[20,38],[7,40],[57,21],[19,9],[29,13],[11,18],[9,52],[22,51],[53,55],[58,39],[5,23],[8,13],[15,32],[22,30]]){
- const h=heights[id(x,z)],trunk=4;
- for(let y=h+2;y<=h+5;y++)for(let dz=-2;dz<=2;dz++)for(let dx=-2;dx<=2;dx++)if(Math.abs(dx)+Math.abs(dz)<(y===h+5?2:4)&&!voxel(x+dx,y,z+dz))put(x+dx,y,z+dz,T.LEAVES);
- for(let y=h;y<h+trunk;y++)put(x,y,z,T.WOOD);
-}
-// A few exposed coal veins give a visible route into the mining progression.
-for(const [x,z]of[[35,25],[36,26],[37,27]]){let y=heights[id(x,z)]-1;if(voxel(x,y,z)===T.STONE)put(x,y,z,T.COAL);}
-put(15,cabinY,23,T.TABLE);put(18,cabinY,23,T.FURNACE);put(18,cabinY,20,T.CHEST);
-// Preserve original solids so sparse voxel edits can be saved and validated.
-const original = world.slice();
 const faces = [
   { n: [1, 0, 0], v: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]] },
   { n: [-1, 0, 0], v: [[0, 0, 1], [0, 1, 1], [0, 1, 0], [0, 0, 0]] },
@@ -168,37 +94,43 @@ const faces = [
   { n: [0, 0, 1], v: [[1, 0, 1], [1, 1, 1], [0, 1, 1], [0, 0, 1]] },
   { n: [0, 0, -1], v: [[0, 0, 0], [0, 1, 0], [1, 1, 0], [1, 0, 0]] }
 ];
-const chunks = new Map(), dirty = new Set();
-function chunkKey(x, z) { return `${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`; }
-function rebuildChunk(cx, cz) {
-  const buckets = materials.map(() => ({ p: [], n: [], uv: [], c: [] }));
-  for (let z = cz * CHUNK; z < (cz + 1) * CHUNK; z++) for (let x = cx * CHUNK; x < (cx + 1) * CHUNK; x++) for (let y = MIN_Y; y < MAX_Y; y++) {
-    const type = voxel(x, y, z); if (!type) continue;
-    for (const face of faces) {
-      const [dx, dy, dz] = face.n; const neighbor=voxel(x+dx,y+dy,z+dz);if(neighbor && (type===neighbor || (solidType(neighbor)&&neighbor!==T.GLASS))) continue;
-      const material=deepOreMaterials[type]&&y<-16?deepOreMaterials[type]:type===T.GRASS?(dy===1?blockMaterials[T.GRASS]:dy===-1?blockMaterials[T.DIRT]:grassSide):type===T.WOOD&&dy?woodEnd:blockMaterials[type];
-      const bucket = buckets[material], shade = .91 + ((x * 13 + z * 7 + y * 3) & 7) * .012;
-      for (const corner of [0, 1, 2, 0, 2, 3]) {
-        const v = face.v[corner]; bucket.p.push(x - OFFSET + (type===T.TORCH?.4+v[0]*.2:v[0]), y + (type===T.TORCH?v[1]*.7:type===T.WATER?v[1]*.86:v[1]), z - OFFSET + (type===T.TORCH?.4+v[2]*.2:v[2])); bucket.n.push(dx, dy, dz);
-        bucket.uv.push(...[[0, 0], [0, 1], [1, 1], [1, 0]][corner]); bucket.c.push(shade, shade, shade);
-      }
-    }
+const chunks=new Map(),dirty=new Set(),chunkQueue=[],queuedChunks=new Set();
+let streamCenter='',streamClock=0,viewRadius=matchMedia('(pointer:coarse)').matches?3:4;
+const chunkKey=(x,z)=>`${Math.floor(x/CHUNK)},${Math.floor(z/CHUNK)}`;
+function rebuildChunk(cx,cz){
+ const record=world.chunk(cx,cz),data=record.data;
+ const borders={left:world.chunk(cx-1,cz).data,right:world.chunk(cx+1,cz).data,back:world.chunk(cx,cz-1).data,front:world.chunk(cx,cz+1).data};
+ const stride=CHUNK*CHUNK,buckets=materials.map(()=>({p:[],n:[],uv:[],c:[],i:[]}));
+ const get=(x,y,z)=>{if(y<MIN_Y||y>=MAX_Y)return 0;let buffer=data;if(x<0){x+=CHUNK;buffer=borders.left;}else if(x>=CHUNK){x-=CHUNK;buffer=borders.right;}else if(z<0){z+=CHUNK;buffer=borders.back;}else if(z>=CHUNK){z-=CHUNK;buffer=borders.front;}return buffer[(y-MIN_Y)*stride+z*CHUNK+x];};
+ for(let z=0;z<CHUNK;z++)for(let x=0;x<CHUNK;x++)for(let y=MIN_Y;y<MAX_Y;y++){
+  const type=data[(y-MIN_Y)*stride+z*CHUNK+x];if(!type)continue;const gx=cx*CHUNK+x,gz=cz*CHUNK+z;
+  for(const face of faces){const [dx,dy,dz]=face.n,n=get(x+dx,y+dy,z+dz);if(n&&(type===n||(solidType(n)&&n!==T.GLASS&&n!==T.ICE)))continue;
+   const m=deepOreMaterials[type]&&y<-16?deepOreMaterials[type]:type===T.GRASS?(dy===1?blockMaterials[T.GRASS]:dy===-1?blockMaterials[T.DIRT]:grassSide):[T.WOOD,T.SNOW_LOG,T.JUNGLE_LOG].includes(type)&&dy?woodEnd:blockMaterials[type];
+   const bucket=buckets[m];if(!bucket)continue;const start=bucket.p.length/3,shade=.87+((gx*13+gz*7+y*3)&7)*.013;
+   for(let corner=0;corner<4;corner++){const v=face.v[corner];bucket.p.push(gx-OFFSET+(type===T.TORCH?.4+v[0]*.2:v[0]),y+(type===T.TORCH?v[1]*.7:[T.WATER,T.LAVA].includes(type)?v[1]*.87:v[1]),gz-OFFSET+(type===T.TORCH?.4+v[2]*.2:v[2]));bucket.n.push(dx,dy,dz);bucket.uv.push(...[[0,0],[0,1],[1,1],[1,0]][corner]);bucket.c.push(shade,shade,shade);}
+   bucket.i.push(start,start+1,start+2,start,start+2,start+3);
   }
-  const geometry = new THREE.BufferGeometry(), p = [], normals = [], uv = [], colors = [];
-  buckets.forEach((bucket, i) => { const start = p.length / 3; p.push(...bucket.p); normals.push(...bucket.n); uv.push(...bucket.uv); colors.push(...bucket.c); if (bucket.p.length) geometry.addGroup(start, bucket.p.length / 3, i); });
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); geometry.computeBoundingSphere();
-  const key = `${cx},${cz}`, mesh = chunks.get(key);
-  if (mesh) { mesh.geometry.dispose(); mesh.geometry = geometry; }
-  else { const mesh = new THREE.Mesh(geometry, materials); chunks.set(key, mesh); scene.add(mesh); }
+ }
+ const geometry=new THREE.BufferGeometry(),p=[],normals=[],uv=[],colors=[],indices=[];
+ buckets.forEach((bucket,i)=>{const start=indices.length,offset=p.length/3;for(const v of bucket.p)p.push(v);for(const v of bucket.n)normals.push(v);for(const v of bucket.uv)uv.push(v);for(const v of bucket.c)colors.push(v);for(const v of bucket.i)indices.push(v+offset);if(bucket.i.length)geometry.addGroup(start,bucket.i.length,i);});
+ geometry.setAttribute('position',new THREE.Float32BufferAttribute(p,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3));geometry.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));geometry.setIndex(indices);geometry.computeBoundingSphere();
+ const key=`${cx},${cz}`,mesh=chunks.get(key);if(mesh){mesh.geometry.dispose();mesh.geometry=geometry;}else{const mesh=new THREE.Mesh(geometry,materials);chunks.set(key,mesh);scene.add(mesh);}
 }
-function rebuildAll() { for (let cz = 0; cz < N / CHUNK; cz++) for (let cx = 0; cx < N / CHUNK; cx++) rebuildChunk(cx, cz); dirty.clear(); }
-function setVoxel(x, y, z, type) {
-  const i = index(x, y, z); world[i] = type; if (type === original[i]) edits.delete(i); else edits.set(i, type);
-  for (const [dx, dz] of [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]]) if (inside(x + dx, z + dz)) dirty.add(chunkKey(x + dx, z + dz));
+function queueChunk(key){if(!queuedChunks.has(key)){queuedChunks.add(key);chunkQueue.push(key);}}
+function updateStreaming(force=false){
+ const c=cellAt(camera.position.x,camera.position.z),cx=Math.floor(c.x/CHUNK),cz=Math.floor(c.z/CHUNK),center=`${cx},${cz}`;
+ if(!force&&center===streamCenter)return;streamCenter=center;
+ const keep=new Set(),wanted=[];
+ for(let dz=-viewRadius;dz<=viewRadius;dz++)for(let dx=-viewRadius;dx<=viewRadius;dx++){const key=`${cx+dx},${cz+dz}`;keep.add(key);wanted.push({key,d:dx*dx+dz*dz});}
+ for(const [key,mesh]of chunks)if(!keep.has(key)){scene.remove(mesh);mesh.geometry.dispose();chunks.delete(key);}
+ for(let i=chunkQueue.length-1;i>=0;i--)if(!keep.has(chunkQueue[i])){queuedChunks.delete(chunkQueue[i]);chunkQueue.splice(i,1);}
+ wanted.sort((a,b)=>a.d-b.d);for(const {key}of wanted)if(!chunks.has(key))queueChunk(key);
+ const halo=new Set(keep);for(let dz=-viewRadius-1;dz<=viewRadius+1;dz++)for(let dx=-viewRadius-1;dx<=viewRadius+1;dx++)halo.add(`${cx+dx},${cz+dz}`);world.evictExcept(halo);
 }
-function flushChunks() { for (const key of dirty) { const [x, z] = key.split(',').map(Number); rebuildChunk(x, z); } dirty.clear(); }
-rebuildAll();
+function pumpChunks(){const key=chunkQueue.shift();if(!key)return;queuedChunks.delete(key);const [x,z]=key.split(',').map(Number);rebuildChunk(x,z);}
+function rebuildAll(){for(const mesh of chunks.values()){scene.remove(mesh);mesh.geometry.dispose();}chunks.clear();chunkQueue.length=0;queuedChunks.clear();dirty.clear();streamCenter='';updateStreaming(true);const c=cellAt(camera.position.x,camera.position.z);const cx=Math.floor(c.x/CHUNK),cz=Math.floor(c.z/CHUNK),key=`${cx},${cz}`;rebuildChunk(cx,cz);queuedChunks.delete(key);const at=chunkQueue.indexOf(key);if(at>=0)chunkQueue.splice(at,1);}
+function setVoxel(x,y,z,type){world.set(x,y,z,type);for(const[dx,dz]of [[0,0],[-1,0],[1,0],[0,-1],[0,1]])dirty.add(chunkKey(x+dx,z+dz));}
+function flushChunks(){for(const key of dirty)if(chunks.has(key)){const[x,z]=key.split(',').map(Number);rebuildChunk(x,z);}dirty.clear();}
 const trees = new THREE.Group(), caveDecor = new THREE.Group(); scene.add(trees, caveDecor);
 const obstacles = [];
 function block(x, y, z, sx, sy, sz, material, parent = trees) {
@@ -212,35 +144,21 @@ function sign(text, x, y, z) {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 1), new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide })); mesh.position.set(x - OFFSET + .5, y + 1.7, z - OFFSET + .5); mesh.rotation.y = Math.PI; scene.add(mesh);
   block(x - OFFSET + .5, y + .65, z - OFFSET + .5, .13, 1.3, .13, wood);
 }
-sign('旅人の山小屋\n地下探索の出発点', 16, heights[id(16, 16)], 16);
-sign('風見の見張り塔\n階段をジャンプで登ろう', 23, heights[id(23, 15)], 15);
-sign('地鳴りの遺跡\n土の下へ、階段状に掘ろう', 33, ruinY, 33);
+sign('旅人の山小屋\n地下探索の出発点',16,height(16,16),16);
+sign('風見の見張り塔\n階段をジャンプで登ろう',23,height(23,15),15);
+sign('地鳴りの遺跡\n土の下へ、階段状に掘ろう',33,height(33,35),33);
 const caveLights=[];
-// Sparse amethyst alcoves, rather than a room filled with decorative giant cones.
-for(const [x,z]of[[35,44],[28,35],[48,52]]){const intervals=caveCells.get(id(x,z));const c=intervals?.[0];if(!c)continue;for(const [dx,dz]of[[0,0],[1,0],[0,1]]){const y=c.floor-1;if(solid(x+dx,y,z+dz)){world[index(x+dx,y,z+dz)]=T.GLOW;original[index(x+dx,y,z+dz)]=T.GLOW;}}const l=new THREE.PointLight(0xad85ef,5,12,1.6);l.position.set(x-OFFSET+.5,c.floor+1,z-OFFSET+.5);scene.add(l);caveLights.push(l);}
+for(const[x,z]of [[35,44],[28,35],[48,52]]){let floor=-48;for(let y=-45;y<0;y++)if(world.isCave(x,y,z)){floor=y;break;}const l=new THREE.PointLight(0xad85ef,5,12,1.6);l.position.set(x-OFFSET+.5,floor+1,z-OFFSET+.5);scene.add(l);caveLights.push(l);}
 const pond=()=>false;
-// Small underground pools follow the voxel floor, with no invisible circular obstacle.
-for(let z=45;z<=48;z++)for(let x=17;x<=20;x++){const c=caveCells.get(id(x,z))?.[0];if(c&&voxel(x,c.floor,z)===T.AIR){put(x,c.floor,z,T.WATER);original[index(x,c.floor,z)]=T.WATER;}}
-rebuildAll();
 let torchPositions=[],torchTimer=0;
 const torchLights=Array.from({length:4},()=>{const l=new THREE.PointLight(0xffc477,0,11,1.7);scene.add(l);return l;});
-function refreshTorches(){torchPositions=[...edits].filter(([,t])=>t===T.TORCH).map(([i])=>new THREE.Vector3(i%N-OFFSET+.5,Math.floor(i/plane)+MIN_Y+.8,Math.floor((i%plane)/N)-OFFSET+.5));torchTimer=1;}
+function refreshTorches(){torchPositions=[...edits].filter(([,t])=>t===T.TORCH).map(([key])=>{const[x,y,z]=decodeKey(key);return new THREE.Vector3(x-OFFSET+.5,y+.8,z-OFFSET+.5);});torchTimer=1;}
 function updateTorches(dt){torchTimer+=dt;if(torchTimer<.4)return;torchTimer=0;const nearest=torchesNear();torchLights.forEach((l,i)=>{l.intensity=nearest[i]?7:0;if(nearest[i])l.position.copy(nearest[i]);});}
 function torchesNear(){return torchPositions.filter(p=>p.distanceToSquared(camera.position)<225).sort((a,b)=>a.distanceToSquared(camera.position)-b.distanceToSquared(camera.position)).slice(0,4);}
 
 // Inventory stores actual stacks. Hotbar is the first nine slots of a 36-slot bag.
-const itemDefs={};
-function item(key,name,color,block=null,extra={}){itemDefs[key]={name,color,block,max:64,...extra};}
-item('dirt','土','#896342',T.DIRT);item('stone','丸石','#81857e',T.COBBLE);item('log','原木','#795633',T.WOOD);item('leaves','葉','#487733',T.LEAVES);item('plank','木材','#bd995d',T.PLANK);item('sand','砂','#d9c49b',T.SAND);item('glass','ガラス','#b9dce4',T.GLASS);item('snow','雪','#e5edef',T.SNOW);item('moss','苔の石','#7c916f',T.RUIN);item('amethyst','アメジスト','#9b74c5',T.GLOW);
-item('coal','石炭','#282c28');item('ironOre','鉄の原石','#b98e71');item('goldOre','金の原石','#edc452');item('iron','鉄インゴット','#d4d9d2');item('gold','金インゴット','#f2c950');item('stick','棒','#9c733d');item('apple','りんご','#c54d39');
-item('table','作業台','#ac884e',T.TABLE);item('furnace','かまど','#7c8079',T.FURNACE);item('chest','チェスト','#af8542',T.CHEST);item('torch','松明','#ffc66b',T.TORCH);item('rail','レール','#b6bab4',null,{rail:true});
-for(const [tier,name,color,life,level]of[['wood','木','#b89458',60,1],['stone','石','#898f87',132,2],['iron','鉄','#d1d8d1',251,3]]){
- item(tier+'Pick',name+'のツルハシ',color,null,{max:1,tool:'pick',life,level});
- item(tier+'Axe',name+'の斧',color,null,{max:1,tool:'axe',life,level});
- item(tier+'Shovel',name+'のシャベル',color,null,{max:1,tool:'shovel',life,level});
-}
-let bag=Array(36).fill(null),selected=0,gameMode='survival',panel=null,heldSlot=null,craftSize=2,craftGrid=Array(9).fill(null),chests={},furnaceJobs=[];
-let mining=null,mineHeld=false,handSwing=0,health=20,food=20,fallStart=null,regenTime=0,flying=false,worldTime=0;
+let bag=Array(36).fill(null),selected=0,gameMode='survival',panel=null,heldSlot=null,craftSize=2,craftGrid=Array(9).fill(null),chests={},furnaceJobs=[],furnaceFuel={},equipment=Array(5).fill(null);
+let mining=null,mineHeld=false,handSwing=0,health=20,food=20,fallStart=null,regenTime=0,flying=false,worldTime=0,artReady=0,visitedRegions=new Set(['0,0']),visitedBiomes=new Set(['plains']),defeatedMobs=new Set(),lootedChestKeys=new Set();
 const held=()=>bag[selected];
 const total=key=>bag.reduce((n,s)=>n+(s?.id===key?s.count:0),0);
 function addTo(slots,key,count,durability){const d=itemDefs[key];for(const s of slots)if(s?.id===key&&d.max>1&&s.count<d.max){const n=Math.min(count,d.max-s.count);s.count+=n;count-=n;if(!count)return true;}for(let i=0;i<slots.length&&count;i++)if(!slots[i]){const n=Math.min(count,d.max);slots[i]={id:key,count:n,...(d.life?{durability:durability??d.life}:{})};count-=n;}return !count;}
@@ -249,66 +167,66 @@ function gain(key,count=1,durability){if(!roomFor(key,count))return false;addTo(
 function consume(key,count){for(let i=0;i<bag.length&&count;i++)if(bag[i]?.id===key){const n=Math.min(count,bag[i].count);bag[i].count-=n;count-=n;if(!bag[i].count)bag[i]=null;}renderInventory();}
 function spendSelected(){if(gameMode==='creative')return;if(bag[selected]&&!--bag[selected].count)bag[selected]=null;renderInventory();}
 const iconCache={};
-function icon(key){const d=itemDefs[key],span=document.createElement('span');span.className='item-icon';
- if(!iconCache[key]){const c=document.createElement('canvas');c.width=c.height=16;const g=c.getContext('2d');
- if(d.block){const m=materials[blockMaterials[d.block]],img=m.map.image;g.drawImage(img,2,2,12,12);g.fillStyle='#ffffff30';g.fillRect(2,2,12,2);g.fillStyle='#00000035';g.fillRect(12,2,2,12);}
- else if(d.tool){g.fillStyle='#5b3e20';for(let i=0;i<10;i++)g.fillRect(3+i,13-i,2,2);g.fillStyle=d.color;if(d.tool==='pick'){g.fillRect(4,2,10,2);g.fillRect(11,4,3,3);g.fillRect(3,3,2,2);}else if(d.tool==='axe'){g.fillRect(7,2,6,6);g.fillRect(10,1,4,4);}else{g.fillRect(9,1,5,5);g.fillRect(10,6,3,1);}g.fillStyle='#ffffff45';g.fillRect(7,2,5,1);}
- else if(key==='rail'){g.fillStyle='#b3b9b5';g.fillRect(3,1,2,14);g.fillRect(11,1,2,14);g.fillStyle='#775130';for(let y=3;y<16;y+=4)g.fillRect(1,y,14,2);}
- else if(key==='stick'){g.fillStyle='#a17a43';for(let i=0;i<12;i++)g.fillRect(2+i,13-i,2,2);}
- else{g.fillStyle=d.color;g.fillRect(3,5,10,7);g.fillRect(5,3,6,2);g.fillRect(4,12,8,1);g.fillStyle='#ffffff55';g.fillRect(5,5,6,2);g.fillStyle='#00000033';g.fillRect(10,8,3,4);}
- iconCache[key]=c.toDataURL();}span.style.backgroundImage=`url(${iconCache[key]})`;return span;
-}
-function slotButton(stack,index,kind){const b=document.createElement('button');b.className='slot';b.dataset.slot=index;b.dataset.kind=kind;if(kind==='bag'&&index===selected)b.classList.add('selected');if(heldSlot?.kind===kind&&heldSlot.index===index)b.classList.add('carrying');b.title=stack?`${itemDefs[stack.id].name} ×${stack.count}${stack.durability?' / 耐久 '+stack.durability:''}`:'空きスロット';b.setAttribute('aria-label',b.title);if(stack){b.append(icon(stack.id));const c=document.createElement('span');c.className='count';c.textContent=stack.count>1?stack.count:'';b.append(c);if(stack.durability){const bar=document.createElement('i');bar.className='durability';bar.style.width=(stack.durability/itemDefs[stack.id].life*80)+'%';b.append(bar);}}if(kind==='hotbar'){const n=document.createElement('small');n.textContent=index+1;b.append(n);b.onclick=()=>select(index);}else b.onclick=e=>moveSlot(kind,index,e.shiftKey);return b;}
-function slotList(kind){return kind==='bag'?bag:kind==='craft'?craftGrid:chests[panel.index];}
+function icon(key){const span=document.createElement('span');span.className='item-icon';if(!iconCache[key])iconCache[key]=drawItemIcon(key,32).toDataURL();span.style.backgroundImage=`url(${iconCache[key]})`;return span;}
+function slotButton(stack,index,kind){const b=document.createElement('button');b.className='slot';b.dataset.slot=index;b.dataset.kind=kind;if(kind==='bag'&&index===selected)b.classList.add('selected');if(heldSlot?.kind===kind&&heldSlot.index===index)b.classList.add('carrying');b.title=stack?`${itemDefs[stack.id].description} ×${stack.count}${stack.durability?' / 残り耐久 '+stack.durability:''}`:kind==='equipment'?['頭','胴','脚','足','盾'][index]:'空きスロット';b.setAttribute('aria-label',b.title);if(stack){b.append(icon(stack.id));const c=document.createElement('span');c.className='count';c.textContent=stack.count>1?stack.count:'';b.append(c);if(stack.durability){const bar=document.createElement('i');bar.className='durability';bar.style.width=(stack.durability/itemDefs[stack.id].life*80)+'%';b.append(bar);}}if(kind==='hotbar'){const n=document.createElement('small');n.textContent=index+1;b.append(n);b.onclick=()=>select(index);}else b.onclick=e=>moveSlot(kind,index,e.shiftKey);return b;}
+function slotList(kind){return kind==='bag'?bag:kind==='craft'?craftGrid:kind==='equipment'?equipment:chests[panel.index];}
 function moveSlot(kind,index,shift){const slots=slotList(kind);if(!slots)return;
+ if(kind==='equipment'&&!heldSlot&&slots[index]){const stack=slots[index];if(!roomFor(stack.id,1)){notify('装備を外すために、持ち物の空きを作ってください。');return;}addTo(bag,stack.id,1,stack.durability);slots[index]=null;renderInventory();return;}
+ if(shift&&kind==='bag'&&panel?.type!=='chest'&&slots[index]&&itemDefs[slots[index].id].slot){equipFrom(index);return;}
  if(shift&&kind==='bag'&&panel?.type==='chest'){const s=slots[index];if(s){const copy=chests[panel.index].map(s=>s?{...s}:null);if(addTo(copy,s.id,s.count,s.durability)){chests[panel.index]=copy;slots[index]=null;}}}
- else if(heldSlot){const source=slotList(heldSlot.kind);if(!source){heldSlot=null;return;}const s=source[heldSlot.index];if(s){if(kind==='craft'){if(!slots[index]||slots[index].id===s.id){if(!slots[index])slots[index]={id:s.id,count:0,...(s.durability?{durability:s.durability}:{})};if(slots[index].count<itemDefs[s.id].max){slots[index].count++;if(!--s.count)source[heldSlot.index]=null;}}}
+ else if(heldSlot){const source=slotList(heldSlot.kind);if(!source){heldSlot=null;return;}const s=source[heldSlot.index];if(s){if((kind==='equipment'&&itemDefs[s.id].slot!==equipmentSlots[index])||(heldSlot.kind==='equipment'&&slots[index]&&itemDefs[slots[index].id].slot!==equipmentSlots[heldSlot.index])){notify('その部位に合う装備を選んでください。');return;}if(kind==='craft'){if(!slots[index]||slots[index].id===s.id){if(!slots[index])slots[index]={id:s.id,count:0,...(s.durability?{durability:s.durability}:{})};if(slots[index].count<itemDefs[s.id].max){slots[index].count++;if(!--s.count)source[heldSlot.index]=null;}}}
  else{const dest=slots[index];if(dest?.id===s.id&&itemDefs[s.id].max>1&&!(source===slots&&heldSlot.index===index)){const n=Math.min(s.count,itemDefs[s.id].max-dest.count);dest.count+=n;s.count-=n;if(!s.count)source[heldSlot.index]=null;}else{slots[index]=s;source[heldSlot.index]=dest;}heldSlot=null;}}
  }else if(slots[index])heldSlot={kind,index};renderInventory();}
-const recipes=[
- {id:'plank',n:4,shape:['L'],keys:{L:'log'},size:2},
- {id:'stick',n:4,shape:['P','P'],keys:{P:'plank'},size:2},
- {id:'table',n:1,shape:['PP','PP'],keys:{P:'plank'},size:2},
- {id:'torch',n:4,shape:['C','S'],keys:{C:'coal',S:'stick'},size:2},
- {id:'woodPick',n:1,shape:['PPP',' S ',' S '],keys:{P:'plank',S:'stick'},size:3},
- {id:'stonePick',n:1,shape:['PPP',' S ',' S '],keys:{P:'stone',S:'stick'},size:3},
- {id:'ironPick',n:1,shape:['PPP',' S ',' S '],keys:{P:'iron',S:'stick'},size:3},
- ...['wood','stone','iron'].flatMap(t=>[{id:t+'Axe',n:1,shape:['PP ','PS ',' S '],keys:{P:t==='wood'?'plank':t==='stone'?'stone':'iron',S:'stick'},size:3},{id:t+'Shovel',n:1,shape:['P','S','S'],keys:{P:t==='wood'?'plank':t==='stone'?'stone':'iron',S:'stick'},size:3}]),
- {id:'furnace',n:1,shape:['CCC','C C','CCC'],keys:{C:'stone'},size:3},
- {id:'chest',n:1,shape:['PPP','P P','PPP'],keys:{P:'plank'},size:3},
- {id:'rail',n:16,shape:['I I','ISI','I I'],keys:{I:'iron',S:'stick'},size:3}
-];
+function equipFrom(i){const stack=bag[i],slot=stack?equipmentSlots.indexOf(itemDefs[stack.id].slot):-1;if(slot<0)return;const old=equipment[slot];equipment[slot]=stack;bag[i]=old;heldSlot=null;renderInventory();notify(itemDefs[stack.id].name+'を装備しました。');}
+function armorPoints(){return equipment.reduce((n,v)=>n+(v?(itemDefs[v.id].armor??0):0),0);}
+function damage(amount,reason){if(gameMode==='creative')return;const protection=Math.min(.8,armorPoints()*.035+(equipment[4]?.id==='shield'?.1:0));health-=Math.max(.5,amount*(1-protection));for(let i=0;i<equipment.length;i++)if(equipment[i]&&(equipment[i].durability-=Math.max(1,Math.ceil(amount/2)))<=0){notify(itemDefs[equipment[i].id].name+'が壊れました。');equipment[i]=null;}if(health<=0){health=20;food=20;goHome();notify(reason+'で地上へ戻りました。持ち物は残ります。');}renderInventory();}
 function ingredients(r){const a={};for(const row of r.shape)for(const char of row)if(r.keys[char])a[r.keys[char]]=(a[r.keys[char]]||0)+1;return a;}
 function gridRecipe(){const filled=[];for(let i=0;i<craftSize*craftSize;i++)if(craftGrid[i])filled.push([i%craftSize,Math.floor(i/craftSize),craftGrid[i].id]);if(!filled.length)return null;const minX=Math.min(...filled.map(v=>v[0])),minY=Math.min(...filled.map(v=>v[1]));const actual=filled.map(([x,y,k])=>`${x-minX},${y-minY}:${k}`).sort().join('|');return recipes.find(r=>r.size<=craftSize&&[false,true].some(mirror=>{const expected=[];for(let y=0;y<r.shape.length;y++)for(let x=0;x<r.shape[y].length;x++)if(r.keys[r.shape[y][x]])expected.push(`${mirror?r.shape[y].length-x-1:x},${y}:${r.keys[r.shape[y][x]]}`);const mx=Math.min(...expected.map(v=>+v.split(',')[0]));return expected.map(v=>{const [coord,k]=v.split(':');const [x,y]=coord.split(',');return `${+x-mx},${y}:${k}`;}).sort().join('|')===actual;}))??null;}
 function returnGrid(){const copy=bag.map(s=>s?{...s}:null);for(const s of craftGrid)if(s&&!addTo(copy,s.id,s.count,s.durability))return false;bag=copy;craftGrid.fill(null);heldSlot=null;return true;}
+function ownedForCraft(key){return total(key)+craftGrid.reduce((n,v)=>n+(v?.id===key?v.count:0),0);}
+function availableRecipes(){return recipes.filter(r=>r.size<=craftSize&&Object.entries(ingredients(r)).every(([key,n])=>ownedForCraft(key)>=n));}
 function fillRecipe(r){if(r.size>craftSize){notify('作業台を置いて、近くでFを押すと3×3のクラフトができます。');return;}if(!returnGrid()){notify('素材を戻す空きスロットが足りません。');return;}const needs=ingredients(r);if(Object.entries(needs).some(([k,n])=>total(k)<n)){notify('このレシピの素材が足りません。必要数をレシピに表示しています。');renderInventory();return;}for(const [k,n]of Object.entries(needs))consume(k,n);for(let y=0;y<r.shape.length;y++)for(let x=0;x<r.shape[y].length;x++){const k=r.keys[r.shape[y][x]];if(k)craftGrid[y*craftSize+x]={id:k,count:1};}renderInventory();}
 function craft(){const r=gridRecipe();if(!r||!roomFor(r.id,r.n))return;if(gameMode==='survival')for(let i=0;i<craftSize*craftSize;i++)if(craftGrid[i]&&!--craftGrid[i].count)craftGrid[i]=null;gain(r.id,r.n);notify(`${itemDefs[r.id].name} ×${r.n} をクラフトしました。`);renderInventory();}
 function select(i){selected=i;mining=null;renderInventory();notify(`${i+1}：${held()?itemDefs[held().id].name:'素手'} · Eで配置 / 左クリック長押しで採掘`);}
 function nearby(type){const c=cellAt(player.x,player.z);for(let z=c.z-4;z<=c.z+4;z++)for(let x=c.x-4;x<=c.x+4;x++)for(let y=Math.floor(player.y)-2;y<=Math.floor(player.y)+3;y++)if(voxel(x,y,z)===type&&Math.hypot(x+.5-OFFSET-player.x,y+.5-player.y,z+.5-OFFSET-player.z)<4.5)return {x,y,z,index:index(x,y,z)};return null;}
-function openPanel(type='inventory',station=null){if(panel){closePanel();return;}if(!entered)return;mining=null;mineHeld=false;keys.clear();dragging=false;if(document.pointerLockElement)document.exitPointerLock();craftSize=type==='table'?3:2;panel={type,...station};if(type==='chest')chests[panel.index]??=Array(27).fill(null);$('inventory').hidden=false;renderInventory();}
+function openPanel(type='inventory',station=null){if(panel){closePanel();return;}if(!entered)return;mining=null;mineHeld=false;keys.clear();dragging=false;if(document.pointerLockElement)document.exitPointerLock();craftSize=type==='table'?3:2;panel={type,...station};if(type==='chest'&&!Object.hasOwn(chests,panel.index)){chests[panel.index]=Array(27).fill(null);if(!lootedChestKeys.has(panel.index)){for(const loot of world.lootAt(panel.x,panel.y,panel.z))addTo(chests[panel.index],loot.id,loot.count);lootedChestKeys.add(panel.index);}}$('inventory').hidden=false;renderInventory();}
 function closePanel(){if(!panel)return;if(!returnGrid()){notify('クラフト欄の素材を戻すため、空きスロットを作ってください。');return;}panel=null;heldSlot=null;$('inventory').hidden=true;keys.clear();renderInventory();if(!matchMedia('(pointer:coarse)').matches)renderer.domElement.requestPointerLock()?.catch(()=>{});}
 function workstation(){camera.updateMatrixWorld();const hit=traceVoxel();if(hit&&hit.distance<=5&&[T.TABLE,T.FURNACE,T.CHEST].includes(hit.type)){openPanel(hit.type===T.TABLE?'table':hit.type===T.FURNACE?'furnace':'chest',{x:hit.x,y:hit.y,z:hit.z,index:index(hit.x,hit.y,hit.z)});return;}const station=nearby(T.TABLE);openPanel(station?'table':'inventory',station);}
-function smelt(key){const station=panel?.type==='furnace'?panel:nearby(T.FURNACE);if(!station){notify('かまどを置いて近くで使ってください。');return;}const input={iron:'ironOre',gold:'goldOre',glass:'sand'}[key];const fuel=total('coal')?'coal':total('log')?'log':total('plank')?'plank':null;if(!total(input)||!fuel||furnaceJobs.length>=32){notify('原料と燃料（石炭・原木・木材）が必要です。');return;}consume(input,1);consume(fuel,1);furnaceJobs.push({id:key,input,fuel,remaining:4,index:station.index});renderInventory();}
-function tickFurnace(dt){if(!furnaceJobs.length)return;const j=furnaceJobs[0];if(world[j.index]!==T.FURNACE)return;j.remaining=Math.max(0,j.remaining-dt);if(!j.remaining&&roomFor(j.id,1)){gain(j.id);furnaceJobs.shift();notify(`${itemDefs[j.id].name}が焼けました。インベントリに入りました。`);}if(panel?.type==='furnace')$('smeltStatus').textContent=`${itemDefs[j.id].name} · ${Math.ceil(j.remaining)}秒 / 待ち ${furnaceJobs.length}（空きが必要）`;}
-function renderInventory(){const hot=$('hotbar');hot.replaceChildren(...bag.slice(0,9).map((s,i)=>slotButton(s,i,'hotbar')));$('heldName').textContent=held()?`${itemDefs[held().id].name}${gameMode==='creative'?' ∞':''}`:'素手';$('playMode').textContent=gameMode==='creative'?'クリエイティブ':'サバイバル';$('vitals').hidden=gameMode==='creative';$('resources').textContent=`原木 ${total('log')} · 丸石 ${total('stone')} · 鉄 ${total('iron')} · レール ${total('rail')}`;
+function smelt(key){
+ const station=panel?.type==='furnace'?panel:nearby(T.FURNACE),recipe=smeltingRecipes.find(r=>r.id===key);if(!station||!recipe)return;
+ let credit=furnaceFuel[station.index]??0;const fuel=['coal','charcoal','log','pineLog','jungleLog','plank'].find(k=>total(k)>(k===recipe.input?1:0));
+ if(!total(recipe.input)||(!fuel&&credit<recipe.time)||furnaceJobs.length>=64){notify('原料と燃料が必要です。燃料は石炭・木炭・原木・木材。');return;}
+ consume(recipe.input,1);let used='reserve';if(credit<recipe.time){used=fuel;consume(fuel,1);credit+=['coal','charcoal'].includes(fuel)?32:6;}furnaceFuel[station.index]=credit-recipe.time;
+ furnaceJobs.push({id:key,input:recipe.input,fuel:used,remaining:recipe.time,index:station.index});renderInventory();
+}
+function tickFurnace(dt){
+ const active=new Set(),finished=[];for(const j of furnaceJobs){if(active.has(j.index))continue;active.add(j.index);if(edits.get(j.index)===T.AIR)continue;j.remaining=Math.max(0,j.remaining-dt);if(!j.remaining&&roomFor(j.id,1)){gain(j.id);finished.push(j);notify(itemDefs[j.id].name+'が焼けました。');}}
+ if(finished.length)furnaceJobs=furnaceJobs.filter(j=>!finished.includes(j));
+ if(panel?.type==='furnace'){const jobs=furnaceJobs.filter(j=>j.index===panel.index);$('smeltStatus').textContent=jobs.length?`${itemDefs[jobs[0].id].name} · ${Math.ceil(jobs[0].remaining)}秒 / 待ち${jobs.length}個`:`原料を選んで精錬 · 燃料残量${Math.round((furnaceFuel[panel.index]??0)/4*10)/10}個分`;}
+}
+function renderAvatar(){const c=$('avatar'),g=c.getContext('2d');g.clearRect(0,0,c.width,c.height);g.fillStyle='#23342c';g.fillRect(0,0,96,128);g.fillStyle='#ba9271';g.fillRect(32,14,32,30);g.fillStyle=equipment[0]?itemDefs[equipment[0].id].color:'#70553d';g.fillRect(28,8,40,12);if(equipment[0]){g.fillRect(28,17,7,20);g.fillRect(61,17,7,20);}g.fillStyle='#242826';g.fillRect(36,25,5,4);g.fillRect(54,25,5,4);g.fillStyle=equipment[1]?itemDefs[equipment[1].id].color:'#42838a';g.fillRect(26,47,44,37);g.fillRect(15,48,12,31);g.fillRect(69,48,12,31);g.fillStyle=equipment[2]?itemDefs[equipment[2].id].color:'#516788';g.fillRect(27,84,18,31);g.fillRect(51,84,18,31);g.fillStyle=equipment[3]?itemDefs[equipment[3].id].color:'#574b3b';g.fillRect(24,112,23,9);g.fillRect(49,112,23,9);g.fillStyle='#ffffff35';g.fillRect(30,49,30,3);if(equipment[4]){g.fillStyle=itemDefs[equipment[4].id].color;g.fillRect(72,62,20,27);g.fillStyle='#aebabc';g.fillRect(73,63,18,3);}}
+function renderInventory(){const hot=$('hotbar');hot.replaceChildren(...bag.slice(0,9).map((s,i)=>slotButton(s,i,'hotbar')));$('heldName').textContent=held()?`${itemDefs[held().id].name}${gameMode==='creative'?' ∞':''}`:'素手';$('playMode').textContent=gameMode==='creative'?'クリエイティブ':'サバイバル';$('vitals').hidden=gameMode==='creative';$('armorRating').textContent=`防御 ${armorPoints()} / 20`;$('resources').textContent=`原木 ${total('log')} · 丸石 ${total('stone')} · 鉄 ${total('iron')} · レール ${total('rail')}`;
  if(!panel)return;$('inventoryTitle').textContent=panel.type==='table'?'作業台 · 3 × 3':panel.type==='furnace'?'かまど':panel.type==='chest'?'チェスト':'インベントリ · 2 × 2';
- $('bag').replaceChildren(...bag.map((s,i)=>slotButton(s,i,'bag')));$('recipeBook').hidden=['chest','furnace'].includes(panel.type);$('craftArea').hidden=['chest','furnace'].includes(panel.type);$('chestArea').hidden=panel.type!=='chest';$('furnaceArea').hidden=panel.type!=='furnace';$('creativeArea').hidden=gameMode!=='creative';
+ $('equipmentSlots').replaceChildren(...equipment.map((v,i)=>slotButton(v,i,'equipment')));renderAvatar();$('bag').replaceChildren(...bag.map((s,i)=>slotButton(s,i,'bag')));$('recipeBook').hidden=['chest','furnace'].includes(panel.type);$('craftArea').hidden=['chest','furnace'].includes(panel.type);$('chestArea').hidden=panel.type!=='chest';$('furnaceArea').hidden=panel.type!=='furnace';$('creativeArea').hidden=gameMode!=='creative';
  if(panel.type==='chest')$('chestSlots').replaceChildren(...chests[panel.index].map((s,i)=>slotButton(s,i,'chest')));
- if(!$('craftArea').hidden){$('craftGrid').style.gridTemplateColumns=`repeat(${craftSize},var(--slot))`;$('craftGrid').replaceChildren(...craftGrid.slice(0,craftSize*craftSize).map((s,i)=>slotButton(s,i,'craft')));const r=gridRecipe();$('craftOutput').replaceChildren();$('craftOutput').disabled=!r||!roomFor(r.id,r.n);if(r){$('craftOutput').append(icon(r.id));$('craftOutput').append(document.createTextNode(' ×'+r.n));}$('recipeBook').replaceChildren(...recipes.map(r=>{const b=document.createElement('button');b.dataset.recipe=r.id;const needs=ingredients(r);b.className='recipe'+(r.size>craftSize?' locked':'');b.append(icon(r.id));const text=document.createElement('span');text.textContent=`${itemDefs[r.id].name} ×${r.n}`;const small=document.createElement('small');small.textContent=Object.entries(needs).map(([k,n])=>`${itemDefs[k].name}${n}`).join('・')+(r.size>craftSize?' / 作業台':'' );text.append(small);b.append(text);b.onclick=()=>fillRecipe(r);return b;}));}
- if(panel.type==='furnace'){$('smeltStatus').textContent=furnaceJobs.length?`精錬中 · 残り ${furnaceJobs.length} 個`:'原料1個＋燃料1個 → 4秒で精錬';}
- if(gameMode==='creative')$('creativeItems').replaceChildren(...Object.keys(itemDefs).map(k=>{const b=document.createElement('button');b.className='slot';b.title=itemDefs[k].name;b.append(icon(k));b.onclick=()=>{gain(k,itemDefs[k].max);};return b;}));
+ if(!$('craftArea').hidden){$('craftGrid').style.gridTemplateColumns=`repeat(${craftSize},var(--slot))`;$('craftGrid').replaceChildren(...craftGrid.slice(0,craftSize*craftSize).map((s,i)=>slotButton(s,i,'craft')));const r=gridRecipe();$('craftOutput').replaceChildren();$('craftOutput').disabled=!r||!roomFor(r.id,r.n);if(r){$('craftOutput').append(icon(r.id));$('craftOutput').append(document.createTextNode(' ×'+r.n));}$('recipeBook').replaceChildren(...availableRecipes().map(r=>{const b=document.createElement('button');b.dataset.recipe=r.id;const needs=ingredients(r);b.className='recipe'+(r.size>craftSize?' locked':'');b.append(icon(r.id));const text=document.createElement('span');text.textContent=`${itemDefs[r.id].name} ×${r.n}`;const small=document.createElement('small');small.textContent=Object.entries(needs).map(([k,n])=>`${itemDefs[k].name}${n}`).join('・')+(r.size>craftSize?' / 作業台':'' );text.append(small);b.append(text);b.onclick=()=>fillRecipe(r);return b;}));}
+ $('recipeCount').textContent=`${availableRecipes().length} 種`;if(!$('recipeBook').children.length){const p=document.createElement('p');p.className='slot-guide';p.textContent='今作れるレシピはありません。木や鉱石を集め、作業台でFを押すと種類が増えます。';$('recipeBook').append(p);}
+ if(panel.type==='furnace'){$('smeltRecipes').replaceChildren(...smeltingRecipes.filter(r=>total(r.input)>0&&((furnaceFuel[panel.index]??0)>=r.time||['coal','charcoal','log','pineLog','jungleLog','plank'].some(k=>total(k)>(k===r.input?1:0)))).map(r=>{const b=document.createElement('button');b.dataset.smelt=r.id;b.append(icon(r.id));b.append(document.createTextNode(itemDefs[r.input].name+' → '+itemDefs[r.id].name));b.onclick=()=>smelt(r.id);return b;}));$('smeltStatus').textContent=furnaceJobs.length?`精錬中 · 残り ${furnaceJobs.length} 個`:'原料を選んで精錬 → 4秒で完成';}
+ if(gameMode==='creative')$('creativeItems').replaceChildren(...Object.keys(itemDefs).filter(k=>{const d=itemDefs[k],q=$('itemSearch').value.trim().toLowerCase(),category=$('itemCategory').value;return(!q||d.name.includes(q)||k.toLowerCase().includes(q))&&(category==='all'||category==='tool'&&d.tool||category==='armor'&&d.slot||category==='block'&&d.block!==null||category==='material'&&!d.tool&&!d.slot&&d.block===null);}).map(k=>{const b=document.createElement('button');b.className='slot';b.title=itemDefs[k].name;b.append(icon(k));b.onclick=()=>{gain(k,itemDefs[k].max);};return b;}));
 }
 $('discard').onclick=()=>{if(heldSlot){const slots=slotList(heldSlot.kind);if(slots)slots[heldSlot.index]=null;heldSlot=null;renderInventory();notify('選んだスタックを捨てました。');}};
 $('inventoryToggle').onclick=()=>openPanel();$('craftToggle').onclick=workstation;$('closeInventory').onclick=closePanel;$('craftOutput').onclick=craft;
-for(const key of ['iron','gold','glass'])$('smelt'+key).onclick=()=>smelt(key);
+
+$('itemSearch').oninput=renderInventory;$('itemCategory').onchange=renderInventory;
 $('playMode').onclick=()=>{gameMode=gameMode==='survival'?'creative':'survival';renderInventory();notify(gameMode==='creative'?'クリエイティブ：Iの素材一覧から自由に建築できます。':'サバイバル：採掘・クラフトして集めた素材を使います。');};
-const drops={[T.DIRT]:'dirt',[T.GRASS]:'dirt',[T.STONE]:'stone',[T.DEEP]:'stone',[T.SNOW]:'snow',[T.WOOD]:'log',[T.ROOF]:'plank',[T.RUIN]:'moss',[T.LEAVES]:'leaves',[T.PLANK]:'plank',[T.COBBLE]:'stone',[T.COAL]:'coal',[T.IRON]:'ironOre',[T.GOLD]:'goldOre',[T.TABLE]:'table',[T.FURNACE]:'furnace',[T.CHEST]:'chest',[T.GLASS]:'glass',[T.SAND]:'sand',[T.GLOW]:'amethyst',[T.TORCH]:'torch'};
-const stoneTypes=[T.STONE,T.DEEP,T.COAL,T.IRON,T.GOLD,T.COBBLE,T.RUIN,T.FURNACE,T.GLOW];
-function miningInfo(hit){const d=held()?itemDefs[held().id]:null,stone=stoneTypes.includes(hit.type),level=hit.type===T.GOLD?3:hit.type===T.IRON||hit.type===T.GLOW?2:stone?1:0;const category=stone?'pick':[T.WOOD,T.PLANK,T.TABLE,T.CHEST,T.ROOF].includes(hit.type)?'axe':[T.DIRT,T.GRASS,T.SAND,T.SNOW].includes(hit.type)?'shovel':'hand';const right=d?.tool===category;return {harvest:!level||(d?.tool==='pick'&&d.level>=level),time:gameMode==='creative'?.06:(stone?1.6:hit.type===T.WOOD?1.1:hit.type===T.LEAVES||hit.type===T.TORCH?.16:.45)/(right?[1,2.5,4,6][d.level]:1),drop:drops[hit.type]};}
-function beginMine(){if(!entered||panel||mode!=='build')return;camera.updateMatrixWorld();const h=traceVoxel();if(!canMine(h)){notify('このブロックは掘れません。線路の土台はQでレールを外してから掘れます。');return;}const info=miningInfo(h);if(!info.harvest&&gameMode==='survival'){notify('回収には'+(h.type===T.GOLD?'鉄':h.type===T.IRON||h.type===T.GLOW?'石以上':'木以上')+'のツルハシが必要です。I → レシピで作ろう。');return;}mining={...h,progress:0,...info};handSwing=.3;}
+const drops={[T.DIRT]:'dirt',[T.GRASS]:'dirt',[T.STONE]:'stone',[T.DEEP]:'stone',[T.SNOW]:'snow',[T.WOOD]:'log',[T.ROOF]:'plank',[T.RUIN]:'moss',[T.LEAVES]:'leaves',[T.PLANK]:'plank',[T.COBBLE]:'stone',[T.COAL]:'coal',[T.IRON]:'ironOre',[T.GOLD]:'goldOre',[T.TABLE]:'table',[T.FURNACE]:'furnace',[T.CHEST]:'chest',[T.GLASS]:'glass',[T.SAND]:'sand',[T.GLOW]:'amethyst',[T.TORCH]:'torch',[T.DIAMOND]:'diamond',[T.EMERALD]:'emerald',[T.REDSTONE]:'redstone',[T.LAPIS]:'lapis',[T.COPPER]:'copperOre',[T.COPPER_BLOCK]:'copperBlock',[T.IRON_BLOCK]:'ironBlock',[T.GOLD_BLOCK]:'goldBlock',[T.DIAMOND_BLOCK]:'diamondBlock',[T.EMERALD_BLOCK]:'emeraldBlock',[T.OBSIDIAN]:'obsidian',[T.BRICK]:'brickBlock',[T.BOOKSHELF]:'bookshelf',[T.CACTUS]:'cactus',[T.MUSHROOM]:'mushroom',[T.BASALT]:'basalt',[T.CLAY]:'clay',[T.SNOW_LOG]:'pineLog',[T.PINE_LEAVES]:'pineLeaves',[T.JUNGLE_LOG]:'jungleLog',[T.JUNGLE_LEAVES]:'jungleLeaves',[T.RED_SAND]:'redSand',[T.ICE]:'ice',[T.WOOL]:'wool'};
+const stoneTypes=[T.STONE,T.DEEP,T.COAL,T.IRON,T.GOLD,T.COBBLE,T.RUIN,T.FURNACE,T.GLOW,T.DIAMOND,T.EMERALD,T.REDSTONE,T.LAPIS,T.COPPER,T.OBSIDIAN,T.BASALT,T.BRICK,T.COPPER_BLOCK,T.IRON_BLOCK,T.GOLD_BLOCK,T.DIAMOND_BLOCK,T.EMERALD_BLOCK];
+function miningInfo(hit){const d=held()?itemDefs[held().id]:null,stone=stoneTypes.includes(hit.type),level=hit.type===T.OBSIDIAN?4:[T.GOLD,T.DIAMOND,T.EMERALD,T.REDSTONE].includes(hit.type)?3:[T.IRON,T.GLOW,T.COPPER,T.LAPIS].includes(hit.type)?2:stone?1:0;const category=stone?'pick':[T.WOOD,T.SNOW_LOG,T.JUNGLE_LOG,T.PLANK,T.TABLE,T.CHEST,T.ROOF,T.BOOKSHELF].includes(hit.type)?'axe':[T.DIRT,T.GRASS,T.SAND,T.SNOW,T.RED_SAND,T.CLAY].includes(hit.type)?'shovel':[T.LEAVES,T.PINE_LEAVES,T.JUNGLE_LEAVES,T.MUSHROOM].includes(hit.type)?'sword':'hand';const right=d?.tool===category;return {harvest:!level||(d?.tool==='pick'&&d.level>=level),time:gameMode==='creative'?.06:(stone?1.6:hit.type===T.WOOD?1.1:hit.type===T.LEAVES||hit.type===T.TORCH?.16:.45)/(right?(d.speed??1):1),drop:hit.type===T.LEAVES&&hash(hit.x,hit.y,hit.z)>.94?'apple':drops[hit.type]};}
+function beginMine(){if(!entered||panel||mode!=='build')return;camera.updateMatrixWorld();const h=traceVoxel();if(!canMine(h)){notify('このブロックは掘れません。線路の土台はQでレールを外してから掘れます。');return;}const info=miningInfo(h);if(!info.harvest&&gameMode==='survival'){notify('回収には'+(h.type===T.OBSIDIAN?'ダイヤ以上':[T.GOLD,T.DIAMOND,T.EMERALD,T.REDSTONE].includes(h.type)?'鉄以上':[T.IRON,T.GLOW,T.COPPER,T.LAPIS].includes(h.type)?'石以上':'木以上')+'のツルハシが必要です。I → レシピで作ろう。');return;}mining={...h,progress:0,...info};handSwing=.3;}
 function mineBlock(h){const info=miningInfo(h);if(info.drop&&gameMode==='survival'&&!roomFor(info.drop,1)){notify('インベントリがいっぱいです。チェストへ移すか、ブロックを置いて空きを作ろう。');return;}
+ if(h.type===T.CHEST&&!Object.hasOwn(chests,index(h.x,h.y,h.z))){const loot=world.lootAt(h.x,h.y,h.z);if(loot.length&&!lootedChestKeys.has(index(h.x,h.y,h.z))){notify('宝箱の中身をFで取り出してから壊してください。');return;}}
  if(h.type===T.CHEST&&chests[index(h.x,h.y,h.z)]?.some(Boolean)){notify('中身を取り出してからチェストを壊してください。');return;}if(furnaceJobs.some(j=>j.index===index(h.x,h.y,h.z))){notify('精錬が終わってから、かまどを壊してください。');return;}
- setVoxel(h.x,h.y,h.z,T.AIR);if(gameMode==='survival'&&info.drop)gain(info.drop);if(h.type===T.CHEST)delete chests[index(h.x,h.y,h.z)];if(h.type===T.LEAVES&&hash(h.x,h.y,h.z)>.94&&roomFor('apple',1))gain('apple');
+ setVoxel(h.x,h.y,h.z,T.AIR);if(gameMode==='survival'&&info.drop)gain(info.drop);if(h.type===T.CHEST)delete chests[index(h.x,h.y,h.z)];if(h.type===T.FURNACE)delete furnaceFuel[index(h.x,h.y,h.z)];
  const s=held();if(gameMode==='survival'&&s&&itemDefs[s.id].tool){if(!--s.durability){bag[selected]=null;notify('道具が壊れました。');}renderInventory();}mined++;handSwing=.3;flushChunks();if(h.type===T.TORCH)refreshTorches();updateMission();}
 function tickMining(dt){if(!mining)return;camera.updateMatrixWorld();const h=traceVoxel();if(panel||mode!=='build'||!h||h.x!==mining.x||h.y!==mining.y||h.z!==mining.z){mining=null;return;}mining.progress+=dt;$('breakProgress').hidden=false;$('breakFill').style.width=Math.min(100,mining.progress/mining.time*100)+'%';handSwing=.2;if(mining.progress>=mining.time){mineBlock(mining);mining=null;$('breakProgress').hidden=true;if(mineHeld)beginMine();}}
 
@@ -316,13 +234,13 @@ const railGroup = new THREE.Group(); scene.add(railGroup);
 let rails = [], tool = 'lower', mode = 'build', entered = false, yaw = -2.80, pitch = .25;
 let target = null, valid = false, riding = 0, rideDirection = 1, speed = 4, velocity = 0;
 let caveFound = false, caveRidden = false, mined = 0, caveMix = 0;
-const keys = new Set(), player = new THREE.Vector3(32.5 - OFFSET, heights[id(32, 10)], 10.5 - OFFSET);
+const keys = new Set(), player = new THREE.Vector3(32.5 - OFFSET, height(32,10), 10.5 - OFFSET);
 camera.position.copy(player).add(new THREE.Vector3(0, 1.65, 0)); scene.add(camera);
 const lantern = new THREE.SpotLight(0xd6f5ff, 0, 24, .8, .7, 1.2), lanternTarget = new THREE.Object3D(); lantern.position.set(0, 0, 0); lanternTarget.position.set(0, 0, -1); camera.add(lantern, lanternTarget); lantern.target = lanternTarget;
 function supportBelow(x, z, limit) { const c = cellAt(x, z); if (!inside(c.x, c.z)) return MIN_Y; for (let y = Math.min(MAX_Y - 1, Math.floor(limit) - 1); y >= MIN_Y; y--) if (solid(c.x, y, c.z)) return y + 1; return MIN_Y; }
 function ceilingAbove(x, z, feet) { const c = cellAt(x, z); for (let y = Math.max(MIN_Y, Math.floor(feet + .01)); y < MAX_Y; y++) if (solid(c.x, y, c.z)) return y; return Infinity; }
 function bodyClear(x, z, feet) {
-  if (x < -OFFSET + .2 || x > OFFSET - .2 || z < -OFFSET + .2 || z > OFFSET - .2) return false;
+  if(!Number.isFinite(x)||!Number.isFinite(z))return false;
   for (const [dx, dz] of [[0, 0], [.18, .18], [-.18, .18], [.18, -.18], [-.18, -.18]]) { const c = cellAt(x + dx, z + dz); for (let y = Math.floor(feet + .01); y < feet + BODY - .01; y++) if (solid(c.x, y, c.z)) return false; }
   return !obstacles.some(t => Math.abs(x - t.x) < t.radius && Math.abs(z - t.z) < t.radius && feet < t.y + t.height && feet + BODY > t.y);
 }
@@ -332,7 +250,8 @@ const markerMaterial = new THREE.MeshBasicMaterial({ color: '#d0f789' });
 function beam(a, b, width, height, material) { const mesh = new THREE.Mesh(cube, material); mesh.position.copy(a).add(b).multiplyScalar(.5); mesh.scale.set(width, height, a.distanceTo(b)); mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), b.clone().sub(a).normalize()); railGroup.add(mesh); }
 let lengths = [], routeLength = 0;
 const caveRail = r => inCave(r.x - OFFSET + .5, r.z - OFFSET + .5, r.y);
-const connectedToCave = () => rails.some(caveRail) && rails.some(r => r.y >= 0 && !caveRail(r));
+let railConnection=false;
+const connectedToCave = () => railConnection;
 function updateMission() {
   const connected = connectedToCave(); $('mission').classList.toggle('complete', caveRidden);
   $('missionTitle').textContent = caveRidden ? '地底への冒険、達成！' : connected ? '地底の大洞窟へ出発しよう' : caveFound ? '地上と大洞窟をつなごう' : '掘って、地底の光を探そう';
@@ -340,6 +259,7 @@ function updateMission() {
   $('missionSteps').textContent = `${mined ? '✓' : '○'} 掘削　${caveFound ? '✓' : '○'} 発見　${connected ? '✓' : '○'} 接続　${caveRidden ? '✓' : '○'} 試乗`;
 }
 function refreshRails() {
+  railConnection=rails.some(caveRail)&&rails.some(r=>r.y>=0&&!caveRail(r));
   railGroup.clear();
   for (let i = 0; i < rails.length; i++) {
     const a = railPoint(rails[i]), next = rails[i + 1] || rails[i - 1], b = next ? railPoint(next) : a.clone().add(new THREE.Vector3(0, 0, -1));
@@ -370,9 +290,9 @@ function traceVoxel() {
 const crackCanvas=document.createElement('canvas');crackCanvas.width=crackCanvas.height=16;const crackTexture=new THREE.CanvasTexture(crackCanvas);crackTexture.magFilter=THREE.NearestFilter;const crackMesh=new THREE.Mesh(cube,new THREE.MeshBasicMaterial({map:crackTexture,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2}));crackMesh.scale.setScalar(1.004);crackMesh.visible=false;scene.add(crackMesh);let crackStage=-1;
 const selector=new THREE.LineSegments(new THREE.EdgesGeometry(cube),new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:.65,depthWrite:false})); scene.add(selector);
 const blocked = (x, z, y) => obstacles.some(t => Math.abs(t.x - (x - OFFSET + .5)) < .8 && Math.abs(t.z - (z - OFFSET + .5)) < .8 && y < t.y + t.height && y >= t.y - 1) || pond(x, z, y);
-function railSupported(r, data = world) { return inWorld(r.x, r.y - 1, r.z) && inWorld(r.x, r.y + 1, r.z) && solidType(data[index(r.x,r.y-1,r.z)]) && !solidType(data[index(r.x,r.y,r.z)]) && !solidType(data[index(r.x,r.y+1,r.z)]); }
+function railSupported(r,get=voxel){return inWorld(r.x,r.y-1,r.z)&&inWorld(r.x,r.y+1,r.z)&&solidType(get(r.x,r.y-1,r.z))&&[T.AIR,T.TORCH,T.MUSHROOM].includes(get(r.x,r.y,r.z))&&[T.AIR,T.TORCH,T.MUSHROOM].includes(get(r.x,r.y+1,r.z));}
 function canPlace(t) { if (!t || !railSupported(t) || blocked(t.x, t.z, t.y) || rails.some(r => r.x === t.x && r.z === t.z && r.y === t.y)) return false; const prev = rails.at(-1); return !prev || (Math.abs(t.x - prev.x) + Math.abs(t.z - prev.z) === 1 && Math.abs(t.y - prev.y) <= 1); }
-function canMine(t) { return t && inWorld(t.x, t.y, t.z) && t.type !== T.BEDROCK && t.type !== T.WATER && !rails.some(r => r.x === t.x && r.z === t.z && r.y - 1 === t.y) && !obstacles.some(o => Math.abs(o.x - (t.x - OFFSET + .5)) < .8 && Math.abs(o.z - (t.z - OFFSET + .5)) < .8 && t.y === o.y - 1); }
+function canMine(t) { return t && inWorld(t.x, t.y, t.z) && t.type !== T.BEDROCK && t.type !== T.WATER && t.type !== T.LAVA && !rails.some(r => r.x === t.x && r.z === t.z && r.y - 1 === t.y) && !obstacles.some(o => Math.abs(o.x - (t.x - OFFSET + .5)) < .8 && Math.abs(o.z - (t.z - OFFSET + .5)) < .8 && t.y === o.y - 1); }
 function canBuild(t) {
   if (!t || !inWorld(t.x, t.y, t.z) || voxel(t.x, t.y, t.z) || blocked(t.x, t.z, t.y + 1) || rails.some(r => r.x === t.x && r.z === t.z && t.y >= r.y - 1 && t.y <= r.y + 1)) return false;
   return !(Math.abs(player.x-(t.x-OFFSET+.5))<.69&&Math.abs(player.z-(t.z-OFFSET+.5))<.69&&t.y+1>player.y&&t.y<player.y+BODY);
@@ -391,7 +311,7 @@ function aim() {
 function notify(s){$('message').textContent=s;}
 function place(){
  if(!entered||panel||mode!=='build')return;
- const d=held()?itemDefs[held().id]:null;if(held()?.id==='apple'){if(gameMode==='survival')consume('apple',1);food=Math.min(20,food+4);health=Math.min(20,health+2);notify('りんごを食べました。体力と満腹度が回復しました。');return;}
+ const d=held()?itemDefs[held().id]:null;if(d?.slot){equipFrom(selected);return;}if(d?.food){if(gameMode==='survival')consume(held().id,1);food=Math.min(20,food+d.food);health=Math.min(20,health+(d.heal??0));if(d.returns&&roomFor(d.returns,1))gain(d.returns);notify(d.name+'を食べました。');return;}if(d?.navigation){showNavigation(d.navigation);return;}
  if(!d?.block&&!d?.rail){beginMine();return;}
  aim();if(!target||!valid){notify(d.rail?'レールは最後のマスの隣、段差1ブロックまで。頭上2マス空けてください。':'空いている隣のマスを狙ってください。自分の体には置けません。');return;}
  if(d.rail){rails.push({x:target.x,y:target.y,z:target.z});spendSelected();refreshRails();notify('レールを敷きました。Qで取り外すと素材が戻ります。');}
@@ -410,32 +330,25 @@ function undo() { if (mode === 'ride') stopRide(); if(!rails.length)return;if(ga
 $('undo').onclick=undo; $('clear').onclick=()=>{if(gameMode==='survival'&&!roomFor('rail',rails.length)){notify('全部のレールを回収する空きが足りません。Qで少しずつ回収できます。');return;}if(mode==='ride')stopRide();if(gameMode==='survival'&&rails.length)gain('rail',rails.length);rails=[];refreshRails();notify('線路を回収しました。');};
 $('ride').onclick = () => { if (mode === 'ride') { stopRide(); return; } if (rails.length < 2) return; if (!entered) enter(); mode = 'ride'; riding = 0; rideDirection = 1; const delta = railPoint(rails[1]).sub(railPoint(rails[0])); yaw = Math.atan2(-delta.x, -delta.z); pitch = 0; $('ride').textContent = '■ 降りる'; $('mode').textContent = '一人称 · 乗車'; notify('出発！自分で掘ったトンネルと敷いた線路の先へ。マウスで自由に見回せます。'); };
 $('speed').oninput = e => speed = +e.target.value;
-const SAVE_KEY='block-coaster-world-v5';
-function snapshot(){return {version:5,seed:2,edits:[...edits],rails:rails.map(r=>({...r})),caveFound,caveRidden,mined,player:mode==='ride'?[camera.position.x,supportBelow(camera.position.x,camera.position.z,camera.position.y),camera.position.z]:player.toArray(),view:[yaw,pitch],bag:bag.map(s=>s?{...s}:null),selected,gameMode,health,food,worldTime,craftGrid:craftGrid.map(s=>s?{...s}:null),chests:JSON.parse(JSON.stringify(chests)),furnaceJobs:furnaceJobs.map(j=>({...j}))};}
-$('save').onclick=()=>{try{localStorage.setItem(SAVE_KEY,JSON.stringify(snapshot()));notify('地形・線路・持ち物・チェスト・精錬・現在地を保存しました。');}catch{notify('保存できません。ブラウザの保存設定を確認してください。');}};
-function validSlots(slots,length){
- if(!Array.isArray(slots)||slots.length!==length)throw Error('Invalid inventory');
- for(const s of slots){if(s===null)continue;if(typeof s!=='object'||Array.isArray(s)||!Object.hasOwn(itemDefs,s.id))throw Error('Unknown item');const d=itemDefs[s.id];if(!Number.isInteger(s.count)||s.count<1||s.count>d.max||(d.life&&(!Number.isInteger(s.durability)||s.durability<1||s.durability>d.life))||(!d.life&&s.durability!==undefined))throw Error('Invalid stack');}
-}
-function validateSave(s){
- if(s.version!==5||s.seed!==2||!Array.isArray(s.edits)||s.edits.length>volume||!Array.isArray(s.rails)||s.rails.length>12000||typeof s.caveFound!=='boolean'||typeof s.caveRidden!=='boolean'||!Number.isSafeInteger(s.mined)||s.mined<0)throw Error('Invalid world');
- const candidate=original.slice(),seen=new Set();for(const pair of s.edits){if(!Array.isArray(pair)||pair.length!==2)throw Error('Invalid edit');const [i,t]=pair;if(!Number.isInteger(i)||i<plane||i>=volume||!Number.isInteger(t)||t<0||t>T.TORCH||t===T.BEDROCK||seen.has(i))throw Error('Invalid edit');seen.add(i);candidate[i]=t;}
- seen.clear();s.rails.forEach((r,i)=>{if(!Number.isInteger(r.x)||!Number.isInteger(r.z)||!Number.isInteger(r.y)||!inWorld(r.x,r.y,r.z)||!railSupported(r,candidate))throw Error('Invalid rail');const k=`${r.x},${r.y},${r.z}`;if(seen.has(k))throw Error('Duplicate rail');seen.add(k);if(i){const a=s.rails[i-1];if(Math.abs(a.x-r.x)+Math.abs(a.z-r.z)!==1||Math.abs(a.y-r.y)>1)throw Error('Disconnected rail');}});
- if(!Array.isArray(s.player)||s.player.length!==3||s.player.some(v=>!Number.isFinite(v))||Math.abs(s.player[0])>=OFFSET||Math.abs(s.player[2])>=OFFSET||s.player[1]<MIN_Y+1||s.player[1]>MAX_Y+14||!Array.isArray(s.view)||s.view.length!==2||s.view.some(v=>!Number.isFinite(v))||Math.abs(s.view[1])>1.5)throw Error('Invalid position');
- if(!Number.isFinite(s.health)||s.health<1||s.health>20||!Number.isFinite(s.food)||s.food<0||s.food>20||!Number.isFinite(s.worldTime)||s.worldTime<0)throw Error('Invalid vitals');validSlots(s.bag,36);validSlots(s.craftGrid,9);if(!Number.isInteger(s.selected)||s.selected<0||s.selected>8||!['survival','creative'].includes(s.gameMode)||!s.chests||Array.isArray(s.chests)||typeof s.chests!=='object'||Object.keys(s.chests).length>512)throw Error('Invalid inventory');
- for(const [k,v]of Object.entries(s.chests)){if(!/^\d+$/.test(k)||candidate[+k]!==T.CHEST)throw Error('Invalid chest');validSlots(v,27);}
- if(!Array.isArray(s.furnaceJobs)||s.furnaceJobs.length>32)throw Error('Invalid furnace');for(const j of s.furnaceJobs)if(!['iron','gold','glass'].includes(j.id)||j.input!=={iron:'ironOre',gold:'goldOre',glass:'sand'}[j.id]||!['coal','log','plank'].includes(j.fuel)||!Number.isInteger(j.index)||candidate[j.index]!==T.FURNACE||!Number.isFinite(j.remaining)||j.remaining<0||j.remaining>4)throw Error('Invalid smelting');return candidate;
-}
-$('load').onclick=()=>{try{const raw=localStorage.getItem(SAVE_KEY);if(!raw){notify('このワールドの保存はありません。以前の保存は旧バージョン用として残っています。');return;}const s=JSON.parse(raw),candidate=validateSave(s);if(mode==='ride')stopRide();world.set(candidate);edits.clear();s.edits.forEach(([i,t])=>edits.set(i,t));rails=s.rails.map(r=>({x:r.x,z:r.z,y:r.y}));caveFound=s.caveFound;caveRidden=s.caveRidden;mined=s.mined;bag=s.bag;selected=s.selected;gameMode=s.gameMode;health=s.health;food=s.food;worldTime=s.worldTime;fallStart=null;flying=false;craftGrid=s.craftGrid;chests=s.chests;furnaceJobs=s.furnaceJobs;panel=null;$('inventory').hidden=true;heldSlot=null;player.fromArray(s.player);if(!bodyClear(player.x,player.z,player.y))player.copy(safeSpawn());[yaw,pitch]=s.view;velocity=0;keys.clear();mining=null;camera.position.copy(player).add(new THREE.Vector3(0,1.65,0));rebuildAll();refreshRails();refreshTorches();renderInventory();updateMission();notify('持ち物と世界を読み込みました。');}catch(error){console.warn('Save loading failed:',error.message);notify('保存データが壊れているか、このバージョンと互換性がありません。');}};
+const SAVE_KEY='block-coaster-world-v6';
+function snapshot(){return {version:6,seed:3,edits:[...edits],rails:rails.map(r=>({...r})),caveFound,caveRidden,mined,player:mode==='ride'?[camera.position.x,supportBelow(camera.position.x,camera.position.z,camera.position.y),camera.position.z]:player.toArray(),view:[yaw,pitch],bag:bag.map(s=>s?{...s}:null),selected,gameMode,health,food,worldTime,craftGrid:craftGrid.map(s=>s?{...s}:null),craftSize,equipment:equipment.map(s=>s?{...s}:null),chests:JSON.parse(JSON.stringify(chests)),furnaceJobs:furnaceJobs.map(j=>({...j})),furnaceFuel:{...furnaceFuel},visitedRegions:[...visitedRegions],visitedBiomes:[...visitedBiomes],defeatedMobs:[...defeatedMobs],lootedChestKeys:[...lootedChestKeys]};}
+$('save').onclick=()=>{try{localStorage.setItem(SAVE_KEY,JSON.stringify(snapshot()));notify('地形・建築・線路・装備・持ち物・探索地図を保存しました。');}catch{notify('保存できません。ブラウザの空き容量・保存設定を確認してください。');}};
+$('load').onclick=()=>{try{
+ let raw=localStorage.getItem(SAVE_KEY),migrated=false;if(!raw){raw=localStorage.getItem('block-coaster-world-v5');if(raw)migrated=true;}if(!raw){notify('このブラウザに保存はありません。');return;}
+ const parsed=JSON.parse(raw),source=migrated?migrateV5(parsed):parsed;
+ const{data:s,edits:validatedEdits}=validateSnapshot(source,{world,itemDefs,equipmentSlots,minY:MIN_Y,maxY:MAX_Y,blockTypes:T});
+ if(mode==='ride')stopRide();world.setEdits(validatedEdits);rails=s.rails;bag=s.bag;selected=s.selected;gameMode=s.gameMode;health=s.health;food=s.food;worldTime=s.worldTime;equipment=s.equipment;craftGrid=s.craftGrid;craftSize=s.craftSize;chests=s.chests;furnaceJobs=s.furnaceJobs;furnaceFuel=s.furnaceFuel;visitedRegions=new Set(s.visitedRegions);visitedBiomes=new Set(s.visitedBiomes);defeatedMobs=new Set(s.defeatedMobs);lootedChestKeys=new Set(s.lootedChestKeys);caveFound=s.caveFound;caveRidden=s.caveRidden;mined=s.mined;
+ panel=null;$('inventory').hidden=true;heldSlot=null;player.fromArray(s.player);if(!bodyClear(player.x,player.z,player.y))player.copy(safeSpawn());[yaw,pitch]=s.view;velocity=0;fallStart=null;flying=false;keys.clear();mining=null;closeMap(false);camera.position.copy(player).add(new THREE.Vector3(0,1.65,0));rebuildAll();refreshRails();refreshTorches();renderInventory();updateMission();if(migrated)localStorage.setItem(SAVE_KEY,JSON.stringify(snapshot()));notify(migrated?'以前のワールドを引き継ぎました。持ち物・建築・線路を保って外へ冒険できます。':'世界・装備・持ち物・探索地図を読み込みました。');
+ }catch(error){console.warn('Save loading failed:',error.message);notify('保存データが壊れているか、このバージョンと互換性がありません。');}};
 let dragging = false, touchX = 0, touchY = 0;
 renderer.domElement.addEventListener('pointerdown',e=>{if(!entered||panel)return;if(e.pointerType==='touch'){dragging=true;touchX=e.clientX;touchY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId);return;}if(document.pointerLockElement===renderer.domElement){if(e.button===0){mineHeld=true;beginMine();}if(e.button===2)place();}else if(e.button===0){dragging=true;renderer.domElement.requestPointerLock()?.catch(()=>{});}});
 renderer.domElement.addEventListener('contextmenu',e=>e.preventDefault());window.addEventListener('pointerup',()=>{dragging=false;if(mineHeld)mining=null;mineHeld=false;});
 window.addEventListener('mousemove',e=>{if(!panel&&(document.pointerLockElement===renderer.domElement||dragging)){yaw-=e.movementX*.0025;pitch=Math.max(-1.5,Math.min(1.5,pitch-e.movementY*.0025));}});
 renderer.domElement.addEventListener('pointermove',e=>{if(e.pointerType==='touch'&&dragging&&!panel){yaw-=(e.clientX-touchX)*.005;pitch=Math.max(-1.5,Math.min(1.5,pitch-(e.clientY-touchY)*.005));touchX=e.clientX;touchY=e.clientY;}});
-renderer.domElement.addEventListener('wheel',e=>{if(entered&&!panel){e.preventDefault();select((selected+(e.deltaY>0?1:8))%9);}},{passive:false});
-window.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;if(['Space','ArrowUp','ArrowLeft','ArrowDown','ArrowRight','KeyE','KeyI','KeyC','KeyF','Escape'].includes(e.code))e.preventDefault();
- if(e.code==='Escape'){if(panel)closePanel();return;}if(e.repeat)return;
- if(e.code==='KeyI'||e.code==='KeyC'){openPanel();return;}if(e.code==='KeyF'){if(panel)closePanel();else workstation();return;}if(panel)return;
+renderer.domElement.addEventListener('wheel',e=>{if(entered&&!panel&&$('mapPanel').hidden){e.preventDefault();select((selected+(e.deltaY>0?1:8))%9);}},{passive:false});
+window.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(['Space','ArrowUp','ArrowLeft','ArrowDown','ArrowRight','KeyE','KeyI','KeyC','KeyF','Escape'].includes(e.code))e.preventDefault();
+ if(e.code==='Escape'){if(!$('mapPanel').hidden)closeMap();else if(panel)closePanel();return;}if(e.repeat)return;
+ if(e.code==='KeyM'){toggleMap();return;}if(!$('mapPanel').hidden)return;if(e.code==='KeyI'||e.code==='KeyC'){openPanel();return;}if(e.code==='KeyF'){if(panel)closePanel();else workstation();return;}if(panel)return;
  keys.add(e.code);if(e.code==='KeyE')place();if(e.code==='KeyQ')undo();if(e.code==='KeyR')goHome();if(e.code==='KeyV'&&gameMode==='creative'){flying=!flying;velocity=0;notify(flying?'飛行：矢印で移動、Spaceで上昇、Shiftで下降。Vで着地。':'飛行を終了しました。');}if(/^Digit[1-9]$/.test(e.code))select(+e.code.slice(-1)-1);
 });
 window.addEventListener('keyup',e=>keys.delete(e.code));
@@ -445,7 +358,7 @@ $('mine').addEventListener('pointerdown',e=>{e.preventDefault();mineHeld=true;be
 function walk(dt) {
  if(flying&&gameMode==='creative'){const up=(keys.has('Space')?1:0)-(keys.has('ShiftLeft')?1:0);const dx=(keys.has('ArrowRight')?1:0)-(keys.has('ArrowLeft')?1:0),dz=(keys.has('ArrowDown')?1:0)-(keys.has('ArrowUp')?1:0);const nx=player.x+(dx*Math.cos(yaw)+dz*Math.sin(yaw))*8*dt,nz=player.z+(-dx*Math.sin(yaw)+dz*Math.cos(yaw))*8*dt,ny=THREE.MathUtils.clamp(player.y+up*8*dt,MIN_Y+1,MAX_Y+14);if(bodyClear(nx,nz,ny))player.set(nx,ny,nz);camera.position.copy(player).add(new THREE.Vector3(0,1.65,0));return;}
 
-  let floor = supportBelow(player.x, player.z, player.y + .1); if (player.y <= floor + .02) { player.y = floor; velocity = keys.has('Space') ? 7 : 0;if(fallStart!==null){const fall=fallStart-player.y;fallStart=null;if(gameMode==='survival'&&fall>3){health-=Math.floor(fall-3);if(health<=0){health=20;food=20;player.copy(safeSpawn());notify('大きな落下で地上へ戻りました。持ち物は手元に残ります。');}else notify('落下で体力が減りました。段差を小さくして、階段を作ろう。');}} }
+  let floor = supportBelow(player.x, player.z, player.y + .1); if (player.y <= floor + .02) { player.y = floor; velocity = keys.has('Space') ? 7 : 0;if(fallStart!==null){const fall=fallStart-player.y;fallStart=null;if(gameMode==='survival'&&fall>3){damage(Math.floor(fall-3),'落下');}} }
   let dx = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0), dz = (keys.has('ArrowDown') ? 1 : 0) - (keys.has('ArrowUp') ? 1 : 0); const length = Math.hypot(dx, dz) || 1; dx /= length; dz /= length;
   if(velocity<0)fallStart=Math.max(fallStart??player.y,player.y);if(gameMode==='survival'&&(dx||dz))food=Math.max(0,food-dt*(keys.has('ShiftLeft')?.035:.006));const v = keys.has('ShiftLeft') && (food>6||gameMode==='creative') ? 6 : 3.8, nx = player.x + (dx * Math.cos(yaw) + dz * Math.sin(yaw)) * v * dt, nz = player.z + (-dx * Math.sin(yaw) + dz * Math.cos(yaw)) * v * dt;
   const tryMove = (x, z) => { const step = Math.max(player.y, supportBelow(x, z, player.y + .6)); if (bodyClear(x, z, step)) { player.x = x; player.z = z; player.y = step; } };
@@ -461,29 +374,53 @@ function updateExploration(dt,time){
  const daylight=.25+.75*Math.max(0,Math.sin(worldTime/600*Math.PI*2+1));
 
   const feet = mode === 'build' ? player.y : camera.position.y - 1.27, c = cellAt(camera.position.x, camera.position.z);
-  const depth = inside(c.x, c.z) ? Math.max(0, heights[id(c.x, c.z)] - feet) : 0, underground = depth > 2;
+  const regionKey=`${Math.floor(c.x/64)},${Math.floor(c.z/64)}`,biome=world.biome(c.x,c.z);visitedRegions.add(regionKey);if(entered&&!visitedBiomes.has(biome.id)){visitedBiomes.add(biome.id);notify(biome.name+'を発見！新しい地形と構造物を探そう。');}
+  const depth = inside(c.x, c.z) ? Math.max(0, height(c.x,c.z) - feet) : 0, underground = depth > 2;
   caveMix += ((underground ? 1 : 0) - caveMix) * Math.min(1, dt * 3); ambient.intensity=THREE.MathUtils.lerp(.5+1.7*daylight,.26,caveMix);sun.intensity=THREE.MathUtils.lerp(2.5*daylight,.06,caveMix); lantern.intensity = caveMix * 7;
-  scene.background.set('#19344b').lerp(new THREE.Color('#a4d8ed'),daylight).lerp(new THREE.Color('#101f2b'), caveMix); scene.fog.color.copy(scene.background); scene.fog.near = THREE.MathUtils.lerp(42, 20, caveMix); scene.fog.far = THREE.MathUtils.lerp(115, 70, caveMix);
-  const landmark = structures.find(s => Math.hypot(c.x - s.x, c.z - s.z) < 6 && Math.abs(feet - s.y) < 12);
-  $('location').textContent = `高度 ${Math.round(feet)} m · ${underground ? `地下 ${Math.round(depth)} m` : landmark ? landmark.name : '山岳と草原'}`;
+  scene.background.set('#19344b').lerp(new THREE.Color('#a4d8ed'),daylight).lerp(new THREE.Color('#101f2b'), caveMix); scene.fog.color.copy(scene.background); scene.fog.near = THREE.MathUtils.lerp(viewRadius*CHUNK*.55,16,caveMix); scene.fog.far = THREE.MathUtils.lerp(viewRadius*CHUNK*.97,Math.min(42,viewRadius*CHUNK*.9),caveMix);
+  const landmark = world.structuresNear(c.x,c.z,20).find(s => Math.hypot(c.x - s.x, c.z - s.z) < 6 && Math.abs(feet - s.y) < 12);
+  $('location').textContent = `高度 ${Math.round(feet)} m · X${c.x} Z${c.z} · ${underground ? `地下 ${Math.round(depth)} m` : landmark?landmark.name:world.biome(c.x,c.z).name}`;
   if (entered && inCave(camera.position.x, camera.position.z, feet)) { if (!caveFound) { caveFound = true; updateMission(); notify('✧ 地底の大洞窟を発見！枝分かれする坑道と鉱脈。その先まで線路をつなごう。'); } if (mode === 'ride' && connectedToCave() && !caveRidden) { caveRidden = true; updateMission(); notify('✦ 冒険達成！自分の線路で、深い地底の大洞窟に到着しました。'); } }
 }
 const cloudGroup=new THREE.Group();scene.add(cloudGroup);
 const cloudMaterial=new THREE.MeshBasicMaterial({color:0xe7eef0,transparent:true,opacity:.8});
-for(let k=0;k<10;k++){const c=new THREE.Mesh(new THREE.BoxGeometry(10+k%3*4,1.8,6+k%2*5),cloudMaterial);c.position.set((k*29)%120-60,67+(k%3)*4,(k*47)%120-60);cloudGroup.add(c);}
+for(let k=0;k<10;k++){const c=new THREE.Mesh(new THREE.BoxGeometry(10+k%3*4,1.8,6+k%2*5),cloudMaterial);c.position.set((k*29)%120-60,MAX_Y+14+(k%3)*4,(k*47)%120-60);cloudGroup.add(c);}
 const handGroup=new THREE.Group();camera.add(handGroup);
 const arm=new THREE.Mesh(new THREE.BoxGeometry(.19,.5,.21),new THREE.MeshLambertMaterial({color:0xc49a75}));arm.position.set(.43,-.39,-.63);arm.rotation.set(-.3,0,-.15);handGroup.add(arm);
 const sleeve=new THREE.Mesh(new THREE.BoxGeometry(.2,.21,.22),new THREE.MeshLambertMaterial({color:0x3d8991}));sleeve.position.set(.43,-.62,-.62);handGroup.add(sleeve);
 let heldMesh=null,lastHeld='';
-function updateHand(dt,time){handGroup.visible=entered&&!panel&&mode==='build';const k=held()?.id??'';if(k!==lastHeld){if(heldMesh){handGroup.remove(heldMesh);heldMesh.geometry.dispose();}heldMesh=null;if(k){const d=itemDefs[k];heldMesh=new THREE.Mesh(new THREE.BoxGeometry(d.tool?.12:.25,d.tool?.46:.25,.23),d.block?materials[blockMaterials[d.block]]:new THREE.MeshLambertMaterial({color:d.color}));heldMesh.position.set(.4,-.23,-.72);heldMesh.rotation.set(.2,.4,.15);handGroup.add(heldMesh);}lastHeld=k;}handSwing=Math.max(0,handSwing-dt);handGroup.rotation.z=Math.sin(handSwing*20)*.22;handGroup.position.y=keys.size&&!panel?Math.sin(time*.01)*.018:0;}
-refreshRails(); let last = performance.now();
-function frame(t) { const dt = Math.max(0,Math.min((t-last)/1000,.07)); last = t; if(entered&&!panel){if(mode==='build')walk(dt);else ride(dt);}tickFurnace(dt);tickMining(dt);updateTorches(dt);if(!mining){$('breakProgress').hidden=true;crackMesh.visible=false;crackStage=-1;}else{crackMesh.visible=true;crackMesh.position.set(mining.x-OFFSET+.5,mining.y+.5,mining.z-OFFSET+.5);const stage=Math.floor(mining.progress/mining.time*8);if(stage!==crackStage){crackStage=stage;const g=crackCanvas.getContext('2d');g.clearRect(0,0,16,16);g.strokeStyle='#171b17bb';g.lineWidth=1;for(let i=0;i<=stage+2;i++){g.beginPath();g.moveTo(8,8);g.lineTo((i*7)%16,(i*11)%16);g.lineTo((i*5+2)%16,(i*3+9)%16);g.stroke();}crackTexture.needsUpdate=true;}}updateHand(dt,t);cloudGroup.position.x=Math.sin(worldTime*.003)*8; camera.rotation.set(pitch, yaw, 0, 'YXZ'); updateExploration(dt, t); aim(); if (!target && mode === 'build') $('target').textContent = '地面や壁を狙う · Eで操作'; renderer.render(scene, camera); requestAnimationFrame(frame); }
+function updateHand(dt,time){
+ handGroup.visible=entered&&!panel&&$('mapPanel').hidden&&mode==='build';const k=held()?.id??'';
+ if(k!==lastHeld){
+  if(heldMesh){handGroup.remove(heldMesh);heldMesh.geometry.dispose();if(heldMesh.userData.ownedMaterial){heldMesh.material.map?.dispose();heldMesh.material.dispose();}}heldMesh=null;
+  if(k){const d=itemDefs[k];if(d.block){heldMesh=new THREE.Mesh(new THREE.BoxGeometry(.25,.25,.25),materials[blockMaterials[d.block]]);}else{const texture=new THREE.CanvasTexture(drawItemIcon(k,128));texture.colorSpace=THREE.SRGBColorSpace;texture.magFilter=THREE.NearestFilter;heldMesh=new THREE.Mesh(new THREE.PlaneGeometry(.42,.42),new THREE.MeshBasicMaterial({map:texture,transparent:true,alphaTest:.12,side:THREE.DoubleSide}));heldMesh.userData.ownedMaterial=true;}heldMesh.position.set(.4,-.23,-.72);heldMesh.rotation.set(.2,.4,.15);handGroup.add(heldMesh);}lastHeld=k;
+ }
+ handSwing=Math.max(0,handSwing-dt);handGroup.rotation.z=Math.sin(handSwing*20)*.22;handGroup.position.y=keys.size&&!panel?Math.sin(time*.01)*.018:0;
+}
+function drawMap(){
+ const canvas=$('mapCanvas'),g=canvas.getContext('2d'),c=cellAt(player.x,player.z),rx=Math.floor(c.x/64),rz=Math.floor(c.z/64),tile=30,cols=20,rows=14;
+ g.fillStyle='#182a27';g.fillRect(0,0,600,420);
+ for(let z=0;z<rows;z++)for(let x=0;x<cols;x++){const gx=rx+x-10,gz=rz+z-7,seen=visitedRegions.has(`${gx},${gz}`);g.fillStyle=seen?world.biome(gx*64+32,gz*64+32).color:'#273b35';g.fillRect(x*tile+1,z*tile+1,tile-2,tile-2);if(seen){for(const structure of world.structuresNear(gx*64+32,gz*64+32,44)){if(Math.floor(structure.x/64)!==gx||Math.floor(structure.z/64)!==gz)continue;g.fillStyle='#f4d68c';g.fillRect(x*tile+(structure.x-gx*64)/64*tile-2,z*tile+(structure.z-gz*64)/64*tile-2,4,4);}}}
+ const px=10*tile+(c.x-rx*64)/64*tile,pz=7*tile+(c.z-rz*64)/64*tile;g.fillStyle='#fff5cd';g.beginPath();g.arc(px,pz,5,0,Math.PI*2);g.fill();g.strokeStyle='#fff5cd';g.beginPath();g.moveTo(px,pz);g.lineTo(px-Math.sin(yaw)*14,pz-Math.cos(yaw)*14);g.stroke();
+ $('mapDetail').textContent=`現在地 X ${c.x} / Z ${c.z} · 発見 ${visitedBiomes.size} / 8 バイオーム · ${visitedRegions.size} 地域 · 黄色は構造物`;
+}
+function closeMap(lock=true){$('mapPanel').hidden=true;keys.clear();if(lock&&entered&&!panel&&!matchMedia('(pointer:coarse)').matches)renderer.domElement.requestPointerLock()?.catch(()=>{});}
+function toggleMap(){if(!$('mapPanel').hidden){closeMap();return;}if(!entered)return;if(panel){closePanel();if(panel)return;}keys.clear();mining=null;mineHeld=false;if(document.pointerLockElement)document.exitPointerLock();$('mapPanel').hidden=false;drawMap();}
+function showNavigation(kind){if(kind==='biome'){toggleMap();return;}if(kind==='time'){const hours=Math.floor((worldTime/600*24+6)%24),minutes=Math.floor((worldTime/600*1440)%60);notify(`時計：${hours}:${String(minutes).padStart(2,'0')} · 1日は10分`);return;}const c=cellAt(player.x,player.z),dx=32.5-c.x,dz=10.5-c.z;const direction=Math.abs(dx)>Math.abs(dz)?dx>0?'東':'西':dz>0?'南':'北';notify(`コンパス：出発地まで約${Math.round(Math.hypot(dx,dz))}m、${direction}へ · Rで帰還`);}
+$('mapToggle').onclick=toggleMap;$('closeMap').onclick=()=>closeMap();$('distance').value=String(viewRadius);$('distance').onchange=e=>{viewRadius=Math.max(3,Math.min(5,+e.target.value));rebuildAll();notify('描画距離を変更しました。遠くの地形は順番に表示します。');};
+loadGeneratedArt(setItemAtlas,()=>{artReady++;for(const key of Object.keys(iconCache))delete iconCache[key];lastHeld='\0';renderInventory();}).catch(error=>console.warn(error.message));
+
+rebuildAll();refreshRails(); let last = performance.now();
+function frame(t) { const dt = Math.max(0,Math.min((t-last)/1000,.07)); last = t; if(panel||!$('mapPanel').hidden){tickFurnace(dt);requestAnimationFrame(frame);return;}if(entered&&!panel&&$('mapPanel').hidden){if(mode==='build')walk(dt);else ride(dt);}updateStreaming();pumpChunks();tickFurnace(dt);tickMining(dt);updateTorches(dt);if(!mining){$('breakProgress').hidden=true;crackMesh.visible=false;crackStage=-1;}else{crackMesh.visible=true;crackMesh.position.set(mining.x-OFFSET+.5,mining.y+.5,mining.z-OFFSET+.5);const stage=Math.floor(mining.progress/mining.time*8);if(stage!==crackStage){crackStage=stage;const g=crackCanvas.getContext('2d');g.clearRect(0,0,16,16);g.strokeStyle='#171b17bb';g.lineWidth=1;for(let i=0;i<=stage+2;i++){g.beginPath();g.moveTo(8,8);g.lineTo((i*7)%16,(i*11)%16);g.lineTo((i*5+2)%16,(i*3+9)%16);g.stroke();}crackTexture.needsUpdate=true;}}updateHand(dt,t);cloudGroup.position.x=camera.position.x+Math.sin(worldTime*.003)*8;cloudGroup.position.z=camera.position.z; camera.rotation.set(pitch, yaw, 0, 'YXZ'); updateExploration(dt, t); aim(); if (!target && mode === 'build') $('target').textContent = '地面や壁を狙う · Eで操作'; renderer.render(scene, camera); requestAnimationFrame(frame); }
 requestAnimationFrame(frame); window.addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 renderInventory();notify('木を集めてクラフト。鉄と松明を携えて、枝分かれする地底の世界へ。');
-window.blockCoaster = {
-  getState: () => ({ mode, entered, position: camera.position.toArray(), feet: player.y, direction: camera.getWorldDirection(new THREE.Vector3()).toArray(), yaw, pitch, target: target ? { ...target } : null, valid, tool, connected: connectedToCave(), heights: [...heights], ...snapshot() }),
-  terrainRange: () => [Math.min(...heights), Math.max(...heights)],
-  caveLayout: () => [...caveCells].flatMap(([i,cs])=>cs.map(c=>({x:i%N,z:Math.floor(i/N),y:c.floor,ceiling:c.ceiling}))),
-  structures: () => structures.map(s => ({ ...s })),
-  voxel: (x, y, z) => voxel(x, y, z), dimensions: () => ({ size: N, minY: MIN_Y, maxY: MAX_Y })
+window.blockCoaster={
+ getState:()=>({mode,entered,position:camera.position.toArray(),feet:player.y,direction:camera.getWorldDirection(new THREE.Vector3()).toArray(),yaw,pitch,target:target?{...target}:null,valid,tool,connected:connectedToCave(),heights:[...legacy.heights],...snapshot()}),
+ terrainRange:()=>[Math.min(...legacy.heights),Math.max(...legacy.heights)],
+ caveLayout:()=>{const out=[];for(let z=0;z<64;z++)for(let x=0;x<64;x++){let start=null;for(let y=MIN_Y;y<MAX_Y;y++){if(world.isCave(x,y,z)){if(start===null)start=y;}else if(start!==null){out.push({x,z,y:start,ceiling:y});start=null;}}}return out;},
+ structures:()=>world.structuresNear(...Object.values(cellAt(player.x,player.z)),150).map(s=>({...s})),
+ voxel:(x,y,z)=>voxel(x,y,z),dimensions:()=>({size:64,infinite:true,minY:MIN_Y,maxY:MAX_Y,chunk:CHUNK}),
+ worldInfo:(x,z)=>({height:height(x,z),biome:world.biome(x,z)}),
+ streamingStats:()=>({rendered:chunks.size,pending:chunkQueue.length,viewRadius,...world.stats()}),
+ artStats:()=>({ready:artReady,generatedIcons:104,source:'ChatGPT image generation'}),equipmentState:()=>({slots:equipment.map(s=>s?{...s}:null),armor:armorPoints()}),itemCatalog:()=>JSON.parse(JSON.stringify(itemDefs)),availableRecipes:()=>availableRecipes().map(r=>({id:r.id,n:r.n})),
 };
