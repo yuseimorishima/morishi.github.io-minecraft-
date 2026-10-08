@@ -130,7 +130,7 @@ export const smeltingRecipes = [
 
 for (const [id, d] of Object.entries(itemDefs)) {
   d.description = d.tool
-    ? `${d.name} · ${d.tool==='sword'?'葉やキノコを切る速度':'採掘速度'} ${d.speed} · 耐久 ${d.life}`
+    ? `${d.name} · ${d.tool==='sword'?'葉やキノコを切る速度':'採掘速度'} ${d.speed} · 攻撃 ${d.attack} · 耐久 ${d.life}`
     : d.slot ? `${d.name} · 防御 ${d.armor ?? d.protection} · 耐久 ${d.life}`
     : d.food ? `${d.name} · 満腹度 +${d.food}${d.heal ? ' · 体力 +' + d.heal : ''}`
     : id === 'compass' ? '最初の拠点の方角を確認できます。'

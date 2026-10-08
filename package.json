@@ -1,1 +1,1 @@
-{"name":"block-coaster","private":true,"type":"module","scripts":{"build":"python3 scripts/build_html.py","test":"node tests/world-generation.mjs && node tests/items.mjs && node tests/save.mjs"}}
+{"name":"block-coaster","private":true,"type":"module","scripts":{"build":"python3 scripts/build_html.py","test":"node tests/world-generation.mjs && node tests/items.mjs && node tests/save.mjs && node tests/monsters.mjs"}}

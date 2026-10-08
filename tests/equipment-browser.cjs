@@ -203,15 +203,21 @@ const OFFSET = 32;
       return t && t.x === x && t.y === y && t.z === z;
     }, ore, { timeout: 15000 });
     await page.keyboard.press('KeyE');
-    await page.waitForTimeout(600);
-    assert.equal(await page.evaluate(({ x, y, z }) => blockCoaster.voxel(x, y, z), ore), 24, 'A wooden pickaxe cannot harvest diamond ore');
-    assert.equal(await count('diamond'), 0);
+    const woodTime = (await state()).mining.time;
+    await page.waitForFunction(({ x, y, z }) => blockCoaster.voxel(x, y, z) === 0, ore, { timeout: 20000 });
+    assert.equal(await count('diamond'), 1, 'Wooden tools can also harvest diamond ore, with a longer mining time');
+    assert.equal((await state()).bag.find(s => s?.id === 'woodPick').durability, itemDefs.woodPick.life - 1);
+    await fixture(s => {
+      const edits = new Map(s.edits); edits.set(`${ore.x},${ore.y},${ore.z}`, 24); s.edits = [...edits];
+    });
+    await look(aimX, ore.y + .45, aimZ);
     await page.keyboard.press('Digit2');
     await page.keyboard.press('KeyE');
+    assert.ok((await state()).mining.time < woodTime, 'Iron pickaxe mines the same ore faster than wood');
     await page.waitForFunction(({ x, y, z }) => blockCoaster.voxel(x, y, z) === 0, ore, { timeout: 15000 });
-    assert.equal(await count('diamond'), 1, 'Diamond ore drops a diamond directly, rather than another ore item');
+    assert.equal(await count('diamond'), 2, 'Both tool tiers give the same gem drop');
     assert.equal((await state()).bag.find(s => s?.id === 'ironPick').durability, itemDefs.ironPick.life - 1);
-    console.log('PASS deep diamond ore tool requirement, real mining, gem drop, and tool durability');
+    console.log('PASS deep diamond mining with both wooden and iron tools, speed difference, drops and durability');
 
     await page.waitForFunction(() => {
       const s = blockCoaster.artStats();

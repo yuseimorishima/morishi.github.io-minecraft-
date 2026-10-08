@@ -25,6 +25,9 @@ game += 'const LegacyModule = ' + module('legacy-world.js', ['createLegacyWorld'
 game += 'const ItemsModule = ' + module('items.js', item_names, 'const B = WorldModule.BLOCKS;') + '\nconst {' + ','.join(item_names) + '} = ItemsModule;\n'
 game += 'const ArtModule = ' + module('art.js', art_names) + '\nconst {' + ','.join(art_names) + '} = ArtModule;\n'
 game += 'const SaveModule = ' + module('save.js', ['validateSnapshot','migrateV5']) + '\nconst {validateSnapshot,migrateV5} = SaveModule;\n'
+game += 'const MiningModule = ' + module('mining.js', ['miningProfile'], 'const B = WorldModule.BLOCKS;') + '\nconst {miningProfile} = MiningModule;\n'
+monster_names = ['nightAt','daylightAt','NightCreatures','createCreatureVisuals']
+game += 'const MonsterModule = ' + module('monsters.js', monster_names) + '\nconst {' + ','.join(monster_names) + '} = MonsterModule;\n'
 game += source('game.js')
 library = (root / 'vendor/three.module.js').read_text()
 library, count = re.subn(r'\nexport \{[^}]+\};\s*$', '', library)
