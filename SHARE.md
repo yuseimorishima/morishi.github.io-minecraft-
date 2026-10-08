@@ -1,22 +1,17 @@
 # 友だちに送る方法
 
-## ファイルで送る（公開設定不要）
+次の公開リンクを、そのままLINEやメールなどで送れば遊べます。
 
-`index.html` をダウンロードして、LINE、メールなどにファイルとして添付してください。友だちは保存したHTMLをPCのChrome、Edge、FirefoxなどのWebGL対応ブラウザで開けば遊べます。他のファイルは必要ありません。
+**https://yuseimorishima.github.io/morishi.github.io-minecraft-/**
 
-このチャットのファイルリンクは、ゲームを一般公開するWebサイトのURLではありません。チャットのリンクだけを友だちへ転送する代わりに、HTMLそのものを送ってください。
+新しい版が表示されないときは、ページを再読み込みしてください。保存データは各自のブラウザ内にあります。終了前に「保存」を押してください。
 
-## リンクを開くだけで遊べるようにする（GitHub Pages）
+## HTMLファイルを送る
 
-このリポジトリに完成版を反映したあと、管理権限のあるGitHubアカウントで次の設定を行います。
+`index.html` をファイルとして送ることもできます。受け取った人は保存したHTMLを、PCのChrome・Edge・FirefoxなどWebGL対応ブラウザで開いてください。ほかのファイルや外部通信は必要ありません。スマホでは公開リンクを使う方法がおすすめです。
 
-1. リポジトリの **Settings → Pages** を開く。
-2. **Source** を **Deploy from a branch** にする。
-3. **Branch** を **main**、フォルダを **/ (root)** にし、**Save**。
-4. Pagesの画面で公開完了を確認し、表示されたサイトURLを友だちへ送る。
+## 公開設定
 
-公開後の標準URLは次のとおりです。サイトが公開されるまでは遊べるリンクになりません。
+このリポジトリのGitHub Pagesは `main` ブランチの `/ (root)` を公開します。組み込み済みHTMLと `.nojekyll` を含むため、GitHub Pages側でゲームをビルドする必要はありません。
 
-`https://yuseimorishima.github.io/morishi.github.io-minecraft-/`
-
-HTMLは事前に組み込み済みで、`.nojekyll` も含まれています。GitHub Pages側でゲームをビルドする必要はありません。
+開発時は `python3 scripts/build_html.py` でHTMLを更新し、`main` に反映します。
