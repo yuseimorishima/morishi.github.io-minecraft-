@@ -29,10 +29,13 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWid
 const ambient = new THREE.HemisphereLight(0xdceeff, 0x657d39, 2.2); scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xffefc2, 2.5); sun.position.set(25, 60, 10); scene.add(sun);
 const mat = color => new THREE.MeshLambertMaterial({ color, vertexColors: true });
+let terrainAtlasImage=null;const terrainPainters=[];
+const terrainTiles={grass:0,dirt:1,stone:2,grassSide:3,cobble:4,plank:5,wood:6,end:7,leaves:8,sand:9,brick:12,snow:13,bookcase:14,wool:15};
 // Original pixel art: each block has a readable grain, seam or mineral pattern.
 function texture(kind, base, palette) {
   const c=document.createElement('canvas'); c.width=c.height=16; const g=c.getContext('2d');
-  g.fillStyle=base; g.fillRect(0,0,16,16);
+  function paint(){
+  g.clearRect(0,0,16,16);g.fillStyle=base; g.fillRect(0,0,16,16);
   for(let i=0;i<105;i++){g.fillStyle=palette[i%palette.length];g.fillRect((i*7+i*i)%16,Math.floor(i*17/11)%16,1+i%2,1);}
   if(['plank','table','chest'].includes(kind)){g.fillStyle='#44311d';for(let y=3;y<16;y+=4)g.fillRect(0,y,16,1);for(let y=0;y<16;y+=4)g.fillRect((y*3)%15,y,1,3);}
   if(kind==='wood'){for(let x=2;x<16;x+=4){g.fillStyle='#49321f';g.fillRect(x,0,1,16);}}
@@ -43,7 +46,18 @@ function texture(kind, base, palette) {
   if(kind==='table'){g.fillStyle='#453223';g.fillRect(2,2,12,12);g.strokeStyle='#c19b61';for(let i=2;i<15;i+=4){g.beginPath();g.moveTo(i,2);g.lineTo(i,14);g.moveTo(2,i);g.lineTo(14,i);g.stroke();}}
   if(kind==='furnace'){g.fillStyle='#252929';g.fillRect(3,3,10,3);g.fillRect(3,9,10,5);g.fillStyle='#676b69';g.fillRect(4,10,8,1);}
   if(kind==='chest'){g.fillStyle='#3c2b18';g.fillRect(0,6,16,2);g.fillStyle='#d9c995';g.fillRect(7,6,2,4);}
-  const t=new THREE.CanvasTexture(c); t.magFilter=t.minFilter=THREE.NearestFilter;t.colorSpace=THREE.SRGBColorSpace;return t;
+  if(terrainAtlasImage){
+    const ore=['coal','iron','gold','diamond','emerald','redstone','lapis','copper'].includes(kind);
+    let tile=terrainTiles[kind];if(kind==='stone'&&!['#858782','#4f525c','#484d50','#332c41'].includes(base))tile=undefined;if(kind==='stone'&&['#4f525c','#484d50'].includes(base))tile=10;if(kind==='stone'&&base==='#332c41')tile=11;
+    if(ore)tile=base==='#515560'?10:2;
+    if(tile!==undefined){
+      const w=terrainAtlasImage.width/4,h=terrainAtlasImage.height/4;g.imageSmoothingEnabled=false;g.drawImage(terrainAtlasImage,(tile%4)*w,Math.floor(tile/4)*h,w,h,0,0,16,16);
+      if(ore){const color={coal:'#222428',iron:'#d6a180',gold:'#ffc849',diamond:'#54e4ed',emerald:'#43e784',redstone:'#ed4943',lapis:'#437fe8',copper:'#dc9760'}[kind];for(const[x,y]of[[2,3],[8,2],[11,9],[4,11],[7,7]]){g.fillStyle='#343a45';g.fillRect(x-1,y,4,3);g.fillStyle=color;g.fillRect(x,y,3,2);g.fillStyle=kind==='coal'?'#53565a':'#e3ffed';g.fillRect(x,y,1,1);}}
+    }
+  }
+  }
+  paint();
+  const t=new THREE.CanvasTexture(c); t.magFilter=t.minFilter=THREE.NearestFilter;t.colorSpace=THREE.SRGBColorSpace;terrainPainters.push(()=>{paint();t.needsUpdate=true;});return t;
 }
 const materials=[], blockMaterials={};
 function material(type,kind,base,palette,extra={}){const m=new THREE.MeshLambertMaterial({map:texture(kind,base,palette),vertexColors:true,...extra});blockMaterials[type]=materials.length;materials.push(m);return m;}
@@ -87,6 +101,7 @@ const metal = new THREE.MeshLambertMaterial({ color: '#dce0d8' }), wood = new TH
 const solidType=t=>![T.AIR,T.WATER,T.LAVA,T.TORCH,T.MUSHROOM].includes(t);
 const solid=(x,y,z)=>solidType(voxel(x,y,z));
 const deepOreMaterials={};for(const [type,kind]of [[T.COAL,'coal'],[T.IRON,'iron'],[T.GOLD,'gold'],[T.DIAMOND,'diamond'],[T.EMERALD,'emerald'],[T.REDSTONE,'redstone'],[T.LAPIS,'lapis'],[T.COPPER,'copper']]){deepOreMaterials[type]=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture(kind,'#515560',['#656973','#424651']),vertexColors:true}));}
+const terrainImage=new Image();terrainImage.onload=()=>{terrainAtlasImage=terrainImage;terrainPainters.forEach(paint=>paint());};terrainImage.src='assets/terrain-atlas.png';
 const cube = new THREE.BoxGeometry(1, 1, 1);
 const faces = [
   { n: [1, 0, 0], v: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]] },
@@ -242,9 +257,12 @@ camera.position.copy(player).add(new THREE.Vector3(0, 1.65, 0)); scene.add(camer
 const lantern = new THREE.SpotLight(0xd6f5ff, 0, 24, .8, .7, 1.2), lanternTarget = new THREE.Object3D(); lantern.position.set(0, 0, 0); lanternTarget.position.set(0, 0, -1); camera.add(lantern, lanternTarget); lantern.target = lanternTarget;
 function supportBelow(x, z, limit) { const c = cellAt(x, z); if (!inside(c.x, c.z)) return MIN_Y; for (let y = Math.min(MAX_Y - 1, Math.floor(limit) - 1); y >= MIN_Y; y--) if (solid(c.x, y, c.z)) return y + 1; return MIN_Y; }
 function ceilingAbove(x, z, feet) { const c = cellAt(x, z); for (let y = Math.max(MIN_Y, Math.floor(feet + .01)); y < MAX_Y; y++) if (solid(c.x, y, c.z)) return y; return Infinity; }
+const bodyOffsets = [[0,0],[.28,.28],[-.28,.28],[.28,-.28],[-.28,-.28]];
+function walkingFloor(x,z,limit){return Math.max(...bodyOffsets.map(([dx,dz])=>supportBelow(x+dx,z+dz,limit)));}
+function walkingCeiling(x,z,feet){return Math.min(...bodyOffsets.map(([dx,dz])=>ceilingAbove(x+dx,z+dz,feet)));}
 function bodyClear(x, z, feet) {
   if(!Number.isFinite(x)||!Number.isFinite(z))return false;
-  for (const [dx, dz] of [[0, 0], [.18, .18], [-.18, .18], [.18, -.18], [-.18, -.18]]) { const c = cellAt(x + dx, z + dz); for (let y = Math.floor(feet + .01); y < feet + BODY - .01; y++) if (solid(c.x, y, c.z)) return false; }
+  for (const [dx, dz] of bodyOffsets) { const c = cellAt(x + dx, z + dz); for (let y = Math.floor(feet + .01); y < feet + BODY - .01; y++) if (solid(c.x, y, c.z)) return false; }
   return !obstacles.some(t => Math.abs(x - t.x) < t.radius && Math.abs(z - t.z) < t.radius && feet < t.y + t.height && feet + BODY > t.y);
 }
 function safeSpawn() { for (const [x, z] of [[32, 10], [32, 11], [31, 10], [33, 11]]) { const y = supportBelow(x - OFFSET + .5, z - OFFSET + .5, MAX_Y); if (bodyClear(x - OFFSET + .5, z - OFFSET + .5, y)) return new THREE.Vector3(x - OFFSET + .5, y, z - OFFSET + .5); } return new THREE.Vector3(32.5 - OFFSET, MAX_Y, 10.5 - OFFSET); }
@@ -377,12 +395,14 @@ $('mine').addEventListener('pointerdown',e=>{e.preventDefault();mineHeld=true;be
 function walk(dt) {
  if(flying&&gameMode==='creative'){const up=(keys.has('Space')?1:0)-(keys.has('ShiftLeft')?1:0);const dx=((keys.has('ArrowRight')||keys.has('KeyD'))?1:0)-((keys.has('ArrowLeft')||keys.has('KeyA'))?1:0),dz=((keys.has('ArrowDown')||keys.has('KeyS'))?1:0)-((keys.has('ArrowUp')||keys.has('KeyW'))?1:0);const nx=player.x+(dx*Math.cos(yaw)+dz*Math.sin(yaw))*8*dt,nz=player.z+(-dx*Math.sin(yaw)+dz*Math.cos(yaw))*8*dt,ny=THREE.MathUtils.clamp(player.y+up*8*dt,MIN_Y+1,MAX_Y+14);if(bodyClear(nx,nz,ny))player.set(nx,ny,nz);camera.position.copy(player).add(new THREE.Vector3(0,1.65,0));return;}
 
-  let floor = supportBelow(player.x, player.z, player.y + .1); if (player.y <= floor + .02) { player.y = floor; velocity = keys.has('Space') ? 7 : 0;if(fallStart!==null){const fall=fallStart-player.y;fallStart=null;if(gameMode==='survival'&&fall>3){damage(Math.floor(fall-3),'落下');}} }
+  let floor = walkingFloor(player.x, player.z, player.y + .1); if (player.y <= floor + .02) { player.y = floor; velocity = keys.has('Space') ? 7 : 0;if(fallStart!==null){const fall=fallStart-player.y;fallStart=null;if(gameMode==='survival'&&fall>3){damage(Math.floor(fall-3),'落下');}} }
   let dx = ((keys.has('ArrowRight')||keys.has('KeyD')) ? 1 : 0) - ((keys.has('ArrowLeft')||keys.has('KeyA')) ? 1 : 0), dz = ((keys.has('ArrowDown')||keys.has('KeyS')) ? 1 : 0) - ((keys.has('ArrowUp')||keys.has('KeyW')) ? 1 : 0); const length = Math.hypot(dx, dz) || 1; dx /= length; dz /= length;
   if(velocity<0)fallStart=Math.max(fallStart??player.y,player.y);if(gameMode==='survival'&&(dx||dz))food=Math.max(0,food-dt*(keys.has('ShiftLeft')?.035:.006));const v = keys.has('ShiftLeft') && (food>6||gameMode==='creative') ? 6 : 3.8, nx = player.x + (dx * Math.cos(yaw) + dz * Math.sin(yaw)) * v * dt, nz = player.z + (-dx * Math.sin(yaw) + dz * Math.cos(yaw)) * v * dt;
-  const tryMove = (x, z) => { const step = Math.max(player.y, supportBelow(x, z, player.y + .6)); if (bodyClear(x, z, step)) { player.x = x; player.z = z; player.y = step; } };
+  const tryMove = (x, z) => {
+    if(bodyClear(x,z,player.y)){player.x=x;player.z=z;}
+  };
   tryMove(nx, player.z); tryMove(player.x, nz); velocity -= 18 * dt;
-  floor = supportBelow(player.x, player.z, player.y + .1); const cap = ceilingAbove(player.x, player.z, player.y) - BODY;
+  floor = walkingFloor(player.x, player.z, player.y + .1); const cap = walkingCeiling(player.x, player.z, player.y) - BODY;
   let next = player.y + velocity * dt; if (next > cap) { next = cap; velocity = Math.min(0, velocity); } if (next <= floor) { next = floor; velocity = 0; }
   player.y = next; camera.position.copy(player); camera.position.y += 1.65;
 }
@@ -458,5 +478,5 @@ window.blockCoaster={
  voxel:(x,y,z)=>voxel(x,y,z),dimensions:()=>({size:64,infinite:true,minY:MIN_Y,maxY:MAX_Y,chunk:CHUNK}),
  worldInfo:(x,z)=>({height:height(x,z),biome:world.biome(x,z)}),
  streamingStats:()=>({rendered:chunks.size,pending:chunkQueue.length,viewRadius,...world.stats()}),
- artStats:()=>({ready:artReady,generatedIcons:104,source:'ChatGPT image generation'}),equipmentState:()=>({slots:equipment.map(s=>s?{...s}:null),armor:armorPoints()}),itemCatalog:()=>JSON.parse(JSON.stringify(itemDefs)),availableRecipes:()=>availableRecipes().map(r=>({id:r.id,n:r.n})),
+ artStats:()=>({terrainReady:!!terrainAtlasImage,terrainTiles:16,ready:artReady,generatedIcons:104,source:'ChatGPT image generation'}),equipmentState:()=>({slots:equipment.map(s=>s?{...s}:null),armor:armorPoints()}),itemCatalog:()=>JSON.parse(JSON.stringify(itemDefs)),availableRecipes:()=>availableRecipes().map(r=>({id:r.id,n:r.n})),
 };

@@ -31,3 +31,9 @@ basalt        pineLog       pineLeaves    jungleLog    jungleLeaves  redSand    
 cactus        mushroom      smoothStone   charcoal     ironBlock     goldBlock  copperBlock  diamondBlock
 emeraldBlock  rail          bakedApple    bowl         mushroomStew  paper      book         brick
 ```
+
+## terrain-atlas.png
+
+ChatGPTの画像生成で新規作成した、地形用の4×4アトラス。公式テクスチャは使用していません。
+左上から草、土、石、草側面／丸石、木材、樹皮、年輪／葉、砂、深層岩、黒曜石／レンガ、雪、本棚、羊毛。
+実行時に各タイルを16×16へ切り出して最近傍表示し、鉱石には識別しやすい独自の鉱物模様を重ねます。単体HTMLにも画像を内蔵します。
