@@ -1,3 +1,5 @@
+import {FriendConnection,cleanFriendPose,createFriendAvatar} from './friends.js';
+import {createGameAudio,createBlockParticles,createVoxelSky} from './experience.js';
 import * as THREE from './vendor/three.module.js';
 import { BLOCKS, VoxelWorld, WORLD_MIN_Y, WORLD_MAX_Y, WORLD_CHUNK, hash3 } from './world.js';
 import { createLegacyWorld } from './legacy-world.js';
@@ -102,6 +104,7 @@ const solidType=t=>![T.AIR,T.WATER,T.LAVA,T.TORCH,T.MUSHROOM].includes(t);
 const solid=(x,y,z)=>solidType(voxel(x,y,z));
 const deepOreMaterials={};for(const [type,kind]of [[T.COAL,'coal'],[T.IRON,'iron'],[T.GOLD,'gold'],[T.DIAMOND,'diamond'],[T.EMERALD,'emerald'],[T.REDSTONE,'redstone'],[T.LAPIS,'lapis'],[T.COPPER,'copper']]){deepOreMaterials[type]=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture(kind,'#515560',['#656973','#424651']),vertexColors:true}));}
 const terrainImage=new Image();terrainImage.onload=()=>{terrainAtlasImage=terrainImage;terrainPainters.forEach(paint=>paint());};terrainImage.src='assets/terrain-atlas.png';
+const gameAudio=createGameAudio(),blockParticles=createBlockParticles(THREE,scene,materials,blockMaterials);
 const cube = new THREE.BoxGeometry(1, 1, 1);
 const faces = [
   { n: [1, 0, 0], v: [[1, 0, 0], [1, 1, 0], [1, 1, 1], [1, 0, 1]] },
@@ -189,36 +192,36 @@ const iconCache={};
 function icon(key){const span=document.createElement('span');span.className='item-icon';if(!iconCache[key])iconCache[key]=drawItemIcon(key,32).toDataURL();span.style.backgroundImage=`url(${iconCache[key]})`;return span;}
 function slotButton(stack,index,kind){const b=document.createElement('button');b.className='slot';b.dataset.slot=index;b.dataset.kind=kind;if(kind==='bag'&&index===selected)b.classList.add('selected');if(heldSlot?.kind===kind&&heldSlot.index===index)b.classList.add('carrying');b.title=stack?`${itemDefs[stack.id].description} ×${stack.count}${stack.durability?' / 残り耐久 '+stack.durability:''}`:kind==='equipment'?['頭','胴','脚','足','盾'][index]:'空きスロット';b.setAttribute('aria-label',b.title);if(stack){b.append(icon(stack.id));const c=document.createElement('span');c.className='count';c.textContent=stack.count>1?stack.count:'';b.append(c);if(stack.durability){const bar=document.createElement('i');bar.className='durability';bar.style.width=(stack.durability/itemDefs[stack.id].life*80)+'%';b.append(bar);}}if(kind==='hotbar'){const n=document.createElement('small');n.textContent=index+1;b.append(n);b.onclick=()=>select(index);}else b.onclick=e=>moveSlot(kind,index,e.shiftKey);return b;}
 function slotList(kind){return kind==='bag'?bag:kind==='craft'?craftGrid:kind==='equipment'?equipment:chests[panel.index];}
-function moveSlot(kind,index,shift){const slots=slotList(kind);if(!slots)return;
+function moveSlotLocal(kind,index,shift){const slots=slotList(kind);if(!slots)return;
  if(kind==='equipment'&&!heldSlot&&slots[index]){const stack=slots[index];if(!roomFor(stack.id,1)){notify('装備を外すために、持ち物の空きを作ってください。');return;}addTo(bag,stack.id,1,stack.durability);slots[index]=null;renderInventory();return;}
  if(shift&&kind==='bag'&&panel?.type!=='chest'&&slots[index]&&itemDefs[slots[index].id].slot){equipFrom(index);return;}
  if(shift&&kind==='bag'&&panel?.type==='chest'){const s=slots[index];if(s){const copy=chests[panel.index].map(s=>s?{...s}:null);if(addTo(copy,s.id,s.count,s.durability)){chests[panel.index]=copy;slots[index]=null;}}}
  else if(heldSlot){const source=slotList(heldSlot.kind);if(!source){heldSlot=null;return;}const s=source[heldSlot.index];if(s){if((kind==='equipment'&&itemDefs[s.id].slot!==equipmentSlots[index])||(heldSlot.kind==='equipment'&&slots[index]&&itemDefs[slots[index].id].slot!==equipmentSlots[heldSlot.index])){notify('その部位に合う装備を選んでください。');return;}if(kind==='craft'){if(!slots[index]||slots[index].id===s.id){if(!slots[index])slots[index]={id:s.id,count:0,...(s.durability?{durability:s.durability}:{})};if(slots[index].count<itemDefs[s.id].max){slots[index].count++;if(!--s.count)source[heldSlot.index]=null;}}}
  else{const dest=slots[index];if(dest?.id===s.id&&itemDefs[s.id].max>1&&!(source===slots&&heldSlot.index===index)){const n=Math.min(s.count,itemDefs[s.id].max-dest.count);dest.count+=n;s.count-=n;if(!s.count)source[heldSlot.index]=null;}else{slots[index]=s;source[heldSlot.index]=dest;}heldSlot=null;}}
  }else if(slots[index])heldSlot={kind,index};renderInventory();}
-function equipFrom(i){const stack=bag[i],slot=stack?equipmentSlots.indexOf(itemDefs[stack.id].slot):-1;if(slot<0)return;const old=equipment[slot];equipment[slot]=stack;bag[i]=old;heldSlot=null;renderInventory();notify(itemDefs[stack.id].name+'を装備しました。');}
+function equipFrom(i){if(friendPending){notify('友達の世界と同期中です。');return;}const stack=bag[i],slot=stack?equipmentSlots.indexOf(itemDefs[stack.id].slot):-1;if(slot<0)return;const old=equipment[slot];equipment[slot]=stack;bag[i]=old;heldSlot=null;renderInventory();notify(itemDefs[stack.id].name+'を装備しました。');}
 function armorPoints(){return equipment.reduce((n,v)=>n+(v?(itemDefs[v.id].armor??0):0),0);}
-function damage(amount,reason){if(gameMode==='creative')return;const protection=Math.min(.8,armorPoints()*.035+(equipment[4]?.id==='shield'?.1:0));health-=Math.max(.5,amount*(1-protection));for(let i=0;i<equipment.length;i++)if(equipment[i]&&(equipment[i].durability-=Math.max(1,Math.ceil(amount/2)))<=0){notify(itemDefs[equipment[i].id].name+'が壊れました。');equipment[i]=null;}if(health<=0){health=20;food=20;goHome();notify(reason+'で地上へ戻りました。持ち物は残ります。');}renderInventory();}
+function damage(amount,reason){gameAudio.play('hurt');if(gameMode==='creative')return;const protection=Math.min(.8,armorPoints()*.035+(equipment[4]?.id==='shield'?.1:0));health-=Math.max(.5,amount*(1-protection));for(let i=0;i<equipment.length;i++)if(equipment[i]&&(equipment[i].durability-=Math.max(1,Math.ceil(amount/2)))<=0){notify(itemDefs[equipment[i].id].name+'が壊れました。');equipment[i]=null;}if(health<=0){health=20;food=20;goHome();notify(reason+'で地上へ戻りました。持ち物は残ります。');}renderInventory();}
 function ingredients(r){const a={};for(const row of r.shape)for(const char of row)if(r.keys[char])a[r.keys[char]]=(a[r.keys[char]]||0)+1;return a;}
 function gridRecipe(){const filled=[];for(let i=0;i<craftSize*craftSize;i++)if(craftGrid[i])filled.push([i%craftSize,Math.floor(i/craftSize),craftGrid[i].id]);if(!filled.length)return null;const minX=Math.min(...filled.map(v=>v[0])),minY=Math.min(...filled.map(v=>v[1]));const actual=filled.map(([x,y,k])=>`${x-minX},${y-minY}:${k}`).sort().join('|');return recipes.find(r=>r.size<=craftSize&&[false,true].some(mirror=>{const expected=[];for(let y=0;y<r.shape.length;y++)for(let x=0;x<r.shape[y].length;x++)if(r.keys[r.shape[y][x]])expected.push(`${mirror?r.shape[y].length-x-1:x},${y}:${r.keys[r.shape[y][x]]}`);const mx=Math.min(...expected.map(v=>+v.split(',')[0]));return expected.map(v=>{const [coord,k]=v.split(':');const [x,y]=coord.split(',');return `${+x-mx},${y}:${k}`;}).sort().join('|')===actual;}))??null;}
 function returnGrid(){const copy=bag.map(s=>s?{...s}:null);for(const s of craftGrid)if(s&&!addTo(copy,s.id,s.count,s.durability))return false;bag=copy;craftGrid.fill(null);heldSlot=null;return true;}
 function ownedForCraft(key){return total(key)+craftGrid.reduce((n,v)=>n+(v?.id===key?v.count:0),0);}
 function availableRecipes(){return recipes.filter(r=>r.size<=craftSize&&Object.entries(ingredients(r)).every(([key,n])=>ownedForCraft(key)>=n));}
-function fillRecipe(r){if(r.size>craftSize){notify('作業台を置いて、近くでFを押すと3×3のクラフトができます。');return;}if(!returnGrid()){notify('素材を戻す空きスロットが足りません。');return;}const needs=ingredients(r);if(Object.entries(needs).some(([k,n])=>total(k)<n)){notify('このレシピの素材が足りません。必要数をレシピに表示しています。');renderInventory();return;}for(const [k,n]of Object.entries(needs))consume(k,n);for(let y=0;y<r.shape.length;y++)for(let x=0;x<r.shape[y].length;x++){const k=r.keys[r.shape[y][x]];if(k)craftGrid[y*craftSize+x]={id:k,count:1};}renderInventory();}
-function craft(){const r=gridRecipe();if(!r||!roomFor(r.id,r.n))return;if(gameMode==='survival')for(let i=0;i<craftSize*craftSize;i++)if(craftGrid[i]&&!--craftGrid[i].count)craftGrid[i]=null;gain(r.id,r.n);notify(`${itemDefs[r.id].name} ×${r.n} をクラフトしました。`);renderInventory();}
+function fillRecipe(r){if(friendPending){notify('友達の世界と同期中です。');return;}if(r.size>craftSize){notify('作業台を置いて、近くでFを押すと3×3のクラフトができます。');return;}if(!returnGrid()){notify('素材を戻す空きスロットが足りません。');return;}const needs=ingredients(r);if(Object.entries(needs).some(([k,n])=>total(k)<n)){notify('このレシピの素材が足りません。必要数をレシピに表示しています。');renderInventory();return;}for(const [k,n]of Object.entries(needs))consume(k,n);for(let y=0;y<r.shape.length;y++)for(let x=0;x<r.shape[y].length;x++){const k=r.keys[r.shape[y][x]];if(k)craftGrid[y*craftSize+x]={id:k,count:1};}renderInventory();}
+function craft(){if(friendPending){notify('友達の世界と同期中です。');return;}gameAudio.play('craft');const r=gridRecipe();if(!r||!roomFor(r.id,r.n))return;if(gameMode==='survival')for(let i=0;i<craftSize*craftSize;i++)if(craftGrid[i]&&!--craftGrid[i].count)craftGrid[i]=null;gain(r.id,r.n);notify(`${itemDefs[r.id].name} ×${r.n} をクラフトしました。`);renderInventory();}
 function select(i){selected=i;mining=null;renderInventory();notify(`${i+1}：${held()?itemDefs[held().id].name:'素手'} · Eで配置 / 左クリック長押しで採掘`);}
 function nearby(type){const c=cellAt(player.x,player.z);for(let z=c.z-4;z<=c.z+4;z++)for(let x=c.x-4;x<=c.x+4;x++)for(let y=Math.floor(player.y)-2;y<=Math.floor(player.y)+3;y++)if(voxel(x,y,z)===type&&Math.hypot(x+.5-OFFSET-player.x,y+.5-player.y,z+.5-OFFSET-player.z)<4.5)return {x,y,z,index:index(x,y,z)};return null;}
-function openPanel(type='inventory',station=null){if(panel){closePanel();return;}if(!entered)return;mining=null;mineHeld=false;keys.clear();dragging=false;if(document.pointerLockElement)document.exitPointerLock();craftSize=type==='table'?3:2;panel={type,...station};if(type==='chest'&&!Object.hasOwn(chests,panel.index)){chests[panel.index]=Array(27).fill(null);if(!lootedChestKeys.has(panel.index)){for(const loot of world.lootAt(panel.x,panel.y,panel.z))addTo(chests[panel.index],loot.id,loot.count);lootedChestKeys.add(panel.index);}}$('inventory').hidden=false;renderInventory();}
+function openPanelLocal(type='inventory',station=null){if(panel){closePanel();return;}if(!entered)return;mining=null;mineHeld=false;keys.clear();dragging=false;if(document.pointerLockElement)document.exitPointerLock();craftSize=type==='table'?3:2;panel={type,...station};if(type==='chest'&&!Object.hasOwn(chests,panel.index)){chests[panel.index]=Array(27).fill(null);if(!lootedChestKeys.has(panel.index)){for(const loot of world.lootAt(panel.x,panel.y,panel.z))addTo(chests[panel.index],loot.id,loot.count);lootedChestKeys.add(panel.index);}}$('inventory').hidden=false;renderInventory();}
 function closePanel(){if(!panel)return;if(!returnGrid()){notify('クラフト欄の素材を戻すため、空きスロットを作ってください。');return;}panel=null;heldSlot=null;$('inventory').hidden=true;keys.clear();renderInventory();if(!matchMedia('(pointer:coarse)').matches)renderer.domElement.requestPointerLock()?.catch(()=>{});}
 function workstation(){camera.updateMatrixWorld();const hit=traceVoxel();if(hit&&hit.distance<=5&&[T.TABLE,T.FURNACE,T.CHEST].includes(hit.type)){openPanel(hit.type===T.TABLE?'table':hit.type===T.FURNACE?'furnace':'chest',{x:hit.x,y:hit.y,z:hit.z,index:index(hit.x,hit.y,hit.z)});return;}const station=nearby(T.TABLE);openPanel(station?'table':'inventory',station);}
-function smelt(key){
+function smelt(key){if(friendPending)return;
  const station=panel?.type==='furnace'?panel:nearby(T.FURNACE),recipe=smeltingRecipes.find(r=>r.id===key);if(!station||!recipe)return;
  let credit=furnaceFuel[station.index]??0;const fuel=['coal','charcoal','log','pineLog','jungleLog','plank'].find(k=>total(k)>(k===recipe.input?1:0));
  if(!total(recipe.input)||(!fuel&&credit<recipe.time)||furnaceJobs.length>=64){notify('原料と燃料が必要です。燃料は石炭・木炭・原木・木材。');return;}
  consume(recipe.input,1);let used='reserve';if(credit<recipe.time){used=fuel;consume(fuel,1);credit+=['coal','charcoal'].includes(fuel)?32:6;}furnaceFuel[station.index]=credit-recipe.time;
  furnaceJobs.push({id:key,input:recipe.input,fuel:used,remaining:recipe.time,index:station.index});renderInventory();
 }
-function tickFurnace(dt){
+function tickFurnace(dt){if(friendPending)return;
  const active=new Set(),finished=[];for(const j of furnaceJobs){if(active.has(j.index))continue;active.add(j.index);if(edits.get(j.index)===T.AIR)continue;j.remaining=Math.max(0,j.remaining-dt);if(!j.remaining&&roomFor(j.id,1)){gain(j.id);finished.push(j);notify(itemDefs[j.id].name+'が焼けました。');}}
  if(finished.length)furnaceJobs=furnaceJobs.filter(j=>!finished.includes(j));
  if(panel?.type==='furnace'){const jobs=furnaceJobs.filter(j=>j.index===panel.index);$('smeltStatus').textContent=jobs.length?`${itemDefs[jobs[0].id].name} · ${Math.ceil(jobs[0].remaining)}秒 / 待ち${jobs.length}個`:`原料を選んで精錬 · 燃料残量${Math.round((furnaceFuel[panel.index]??0)/4*10)/10}個分`;}
@@ -231,19 +234,20 @@ function renderInventory(){const hot=$('hotbar');hot.replaceChildren(...bag.slic
  if(!$('craftArea').hidden){$('craftGrid').style.gridTemplateColumns=`repeat(${craftSize},var(--slot))`;$('craftGrid').replaceChildren(...craftGrid.slice(0,craftSize*craftSize).map((s,i)=>slotButton(s,i,'craft')));const r=gridRecipe();$('craftOutput').replaceChildren();$('craftOutput').disabled=!r||!roomFor(r.id,r.n);if(r){$('craftOutput').append(icon(r.id));$('craftOutput').append(document.createTextNode(' ×'+r.n));}$('recipeBook').replaceChildren(...availableRecipes().map(r=>{const b=document.createElement('button');b.dataset.recipe=r.id;const needs=ingredients(r);b.className='recipe'+(r.size>craftSize?' locked':'');b.append(icon(r.id));const text=document.createElement('span');text.textContent=`${itemDefs[r.id].name} ×${r.n}`;const small=document.createElement('small');small.textContent=Object.entries(needs).map(([k,n])=>`${itemDefs[k].name}${n}`).join('・')+(r.size>craftSize?' / 作業台':'' );text.append(small);b.append(text);b.onclick=()=>fillRecipe(r);return b;}));}
  $('recipeCount').textContent=`${availableRecipes().length} 種`;if(!$('recipeBook').children.length){const p=document.createElement('p');p.className='slot-guide';p.textContent='今作れるレシピはありません。木や鉱石を集め、作業台でFを押すと種類が増えます。';$('recipeBook').append(p);}
  if(panel.type==='furnace'){$('smeltRecipes').replaceChildren(...smeltingRecipes.filter(r=>total(r.input)>0&&((furnaceFuel[panel.index]??0)>=r.time||['coal','charcoal','log','pineLog','jungleLog','plank'].some(k=>total(k)>(k===r.input?1:0)))).map(r=>{const b=document.createElement('button');b.dataset.smelt=r.id;b.append(icon(r.id));b.append(document.createTextNode(itemDefs[r.input].name+' → '+itemDefs[r.id].name));b.onclick=()=>smelt(r.id);return b;}));$('smeltStatus').textContent=furnaceJobs.length?`精錬中 · 残り ${furnaceJobs.length} 個`:'原料を選んで精錬 → 4秒で完成';}
- if(gameMode==='creative')$('creativeItems').replaceChildren(...Object.keys(itemDefs).filter(k=>{const d=itemDefs[k],q=$('itemSearch').value.trim().toLowerCase(),category=$('itemCategory').value;return(!q||d.name.includes(q)||k.toLowerCase().includes(q))&&(category==='all'||category==='tool'&&d.tool||category==='armor'&&d.slot||category==='block'&&d.block!==null||category==='material'&&!d.tool&&!d.slot&&d.block===null);}).map(k=>{const b=document.createElement('button');b.className='slot';b.title=itemDefs[k].name;b.append(icon(k));b.onclick=()=>{gain(k,itemDefs[k].max);};return b;}));
+ if(gameMode==='creative')$('creativeItems').replaceChildren(...Object.keys(itemDefs).filter(k=>{const d=itemDefs[k],q=$('itemSearch').value.trim().toLowerCase(),category=$('itemCategory').value;return(!q||d.name.includes(q)||k.toLowerCase().includes(q))&&(category==='all'||category==='tool'&&d.tool||category==='armor'&&d.slot||category==='block'&&d.block!==null||category==='material'&&!d.tool&&!d.slot&&d.block===null);}).map(k=>{const b=document.createElement('button');b.className='slot';b.title=itemDefs[k].name;b.append(icon(k));b.onclick=()=>{if(!friendPending)gain(k,itemDefs[k].max);};return b;}));
 }
-$('discard').onclick=()=>{if(heldSlot){const slots=slotList(heldSlot.kind);if(slots)slots[heldSlot.index]=null;heldSlot=null;renderInventory();notify('選んだスタックを捨てました。');}};
+$('discard').onclick=()=>friendAction(()=>{if(heldSlot){const slots=slotList(heldSlot.kind);if(slots)slots[heldSlot.index]=null;heldSlot=null;renderInventory();notify('選んだスタックを捨てました。');}});
 $('inventoryToggle').onclick=()=>openPanel();$('craftToggle').onclick=workstation;$('closeInventory').onclick=closePanel;$('craftOutput').onclick=craft;
 
 $('itemSearch').oninput=renderInventory;$('itemCategory').onchange=renderInventory;
 $('playMode').onclick=()=>{gameMode=gameMode==='survival'?'creative':'survival';renderInventory();notify(gameMode==='creative'?'クリエイティブ：Iの素材一覧から自由に建築できます。':'サバイバル：採掘・クラフトして集めた素材を使います。');};
 const drops={[T.DIRT]:'dirt',[T.GRASS]:'dirt',[T.STONE]:'stone',[T.DEEP]:'stone',[T.SNOW]:'snow',[T.WOOD]:'log',[T.ROOF]:'plank',[T.RUIN]:'moss',[T.LEAVES]:'leaves',[T.PLANK]:'plank',[T.COBBLE]:'stone',[T.COAL]:'coal',[T.IRON]:'ironOre',[T.GOLD]:'goldOre',[T.TABLE]:'table',[T.FURNACE]:'furnace',[T.CHEST]:'chest',[T.GLASS]:'glass',[T.SAND]:'sand',[T.GLOW]:'amethyst',[T.TORCH]:'torch',[T.DIAMOND]:'diamond',[T.EMERALD]:'emerald',[T.REDSTONE]:'redstone',[T.LAPIS]:'lapis',[T.COPPER]:'copperOre',[T.COPPER_BLOCK]:'copperBlock',[T.IRON_BLOCK]:'ironBlock',[T.GOLD_BLOCK]:'goldBlock',[T.DIAMOND_BLOCK]:'diamondBlock',[T.EMERALD_BLOCK]:'emeraldBlock',[T.OBSIDIAN]:'obsidian',[T.BRICK]:'brickBlock',[T.BOOKSHELF]:'bookshelf',[T.CACTUS]:'cactus',[T.MUSHROOM]:'mushroom',[T.BASALT]:'basalt',[T.CLAY]:'clay',[T.SNOW_LOG]:'pineLog',[T.PINE_LEAVES]:'pineLeaves',[T.JUNGLE_LOG]:'jungleLog',[T.JUNGLE_LEAVES]:'jungleLeaves',[T.RED_SAND]:'redSand',[T.ICE]:'ice',[T.WOOL]:'wool'};
 function miningInfo(hit){return {...miningProfile(hit.type,held()?itemDefs[held().id]:null,gameMode==='creative'),drop:hit.type===T.LEAVES&&hash(hit.x,hit.y,hit.z)>.94?'apple':drops[hit.type]};}
-function beginMine(){if(!entered||panel||mode!=='build')return;camera.updateMatrixWorld();const h=traceVoxel();if(strikeMonster(h)){mining=null;return;}if(!canMine(h)){notify('このブロックは掘れません。線路の土台はQでレールを外してから掘れます。');return;}const info=miningInfo(h);mining={...h,progress:0,...info};handSwing=.3;}
-function mineBlock(h){const info=miningInfo(h);if(info.drop&&gameMode==='survival'&&!roomFor(info.drop,1)){notify('インベントリがいっぱいです。チェストへ移すか、ブロックを置いて空きを作ろう。');return;}
+function beginMine(){if(!entered||panel||!$('friendsPanel').hidden||mode!=='build'||friendPending)return;camera.updateMatrixWorld();const h=traceVoxel();if(strikeMonster(h)){mining=null;return;}if(!canMine(h)){notify('このブロックは掘れません。線路の土台はQでレールを外してから掘れます。');return;}const info=miningInfo(h);mining={...h,progress:0,...info};handSwing=.3;}
+function mineBlockLocal(h){const info=miningInfo(h);if(info.drop&&gameMode==='survival'&&!roomFor(info.drop,1)){notify('インベントリがいっぱいです。チェストへ移すか、ブロックを置いて空きを作ろう。');return;}
  if(h.type===T.CHEST&&!Object.hasOwn(chests,index(h.x,h.y,h.z))){const loot=world.lootAt(h.x,h.y,h.z);if(loot.length&&!lootedChestKeys.has(index(h.x,h.y,h.z))){notify('宝箱の中身をFで取り出してから壊してください。');return;}}
  if(h.type===T.CHEST&&chests[index(h.x,h.y,h.z)]?.some(Boolean)){notify('中身を取り出してからチェストを壊してください。');return;}if(furnaceJobs.some(j=>j.index===index(h.x,h.y,h.z))){notify('精錬が終わってから、かまどを壊してください。');return;}
+ blockParticles.burst(h.x-OFFSET+.5,h.y+.5,h.z-OFFSET+.5,h.type);gameAudio.play([T.WOOD,T.PLANK,T.SNOW_LOG,T.JUNGLE_LOG,T.CHEST,T.TABLE].includes(h.type)?'wood':'stone');
  setVoxel(h.x,h.y,h.z,T.AIR);if(gameMode==='survival'&&info.drop)gain(info.drop);if(h.type===T.CHEST)delete chests[index(h.x,h.y,h.z)];if(h.type===T.FURNACE)delete furnaceFuel[index(h.x,h.y,h.z)];
  const s=held();if(gameMode==='survival'&&s&&itemDefs[s.id].tool){if(!--s.durability){bag[selected]=null;notify('道具が壊れました。');}renderInventory();}mined++;handSwing=.3;flushChunks();if(h.type===T.TORCH)refreshTorches();updateMission();}
 function tickMining(dt){if(mineHeld&&!mining)beginMine();if(!mining)return;camera.updateMatrixWorld();const h=traceVoxel();if(panel||mode!=='build'||!h||h.x!==mining.x||h.y!==mining.y||h.z!==mining.z){mining=null;return;}mining.progress+=dt;$('breakProgress').hidden=false;$('breakFill').style.width=Math.min(100,mining.progress/mining.time*100)+'%';handSwing=.2;if(mining.progress>=mining.time){mineBlock(mining);mining=null;$('breakProgress').hidden=true;if(mineHeld)beginMine();}}
@@ -296,6 +300,7 @@ function refreshRails() {
 // Grid traversal picks the actual nearest solid voxel, including walls and ceilings.
 // It does not depend on triangle counts or allow building through terrain.
 function traceVoxel() {
+  camera.rotation.set(pitch,yaw,0,'YXZ');camera.updateMatrixWorld();
   const o = camera.position, d = touchAim?new THREE.Vector3(touchAim.x,touchAim.y,.5).unproject(camera).sub(o).normalize():camera.getWorldDirection(new THREE.Vector3());
   const ox = o.x + OFFSET, oz = o.z + OFFSET; let x = Math.floor(ox), y = Math.floor(o.y), z = Math.floor(oz), distance = 0, normal = { x: 0, y: 0, z: 0 };
   const sx = Math.sign(d.x), sy = Math.sign(d.y), sz = Math.sign(d.z), deltaX = Math.abs(1 / d.x), deltaY = Math.abs(1 / d.y), deltaZ = Math.abs(1 / d.z);
@@ -330,16 +335,16 @@ function aim() {
  $('target').textContent=`${drops[hit.type]?itemDefs[drops[hit.type]].name:name} · ${valid?(tool==='lower'?`長押しで採掘 · ${miningInfo(hit).time.toFixed(1)}秒`:'Eで配置・左長押しで採掘'):'場所を変えてください'} · Fで作業台などを使う`;
 }
 function notify(s){$('message').textContent=s;}
-function place(){
+function placeLocal(){
  if(!entered||panel||mode!=='build')return;
  const d=held()?itemDefs[held().id]:null;if(d?.slot){equipFrom(selected);return;}if(d?.food){if(gameMode==='survival')consume(held().id,1);food=Math.min(20,food+d.food);health=Math.min(20,health+(d.heal??0));if(d.returns&&roomFor(d.returns,1))gain(d.returns);notify(d.name+'を食べました。');return;}if(d?.navigation){showNavigation(d.navigation);return;}
  if(!d?.block&&!d?.rail){beginMine();return;}
  aim();if(!target||!valid){notify(d.rail?'レールは最後のマスの隣、段差1ブロックまで。頭上2マス空けてください。':'空いている隣のマスを狙ってください。自分の体には置けません。');return;}
  if(d.rail){rails.push({x:target.x,y:target.y,z:target.z});spendSelected();refreshRails();notify('レールを敷きました。Qで取り外すと素材が戻ります。');}
  else{setVoxel(target.x,target.y,target.z,d.block);spendSelected();flushChunks();if(d.block===T.TORCH)refreshTorches();notify(`${d.name}を置きました。${[T.TABLE,T.FURNACE,T.CHEST].includes(d.block)?'近くでFを押すと使えます。':''}`);}
- handSwing=.3;aim();
+ gameAudio.play('place');handSwing=.3;aim();
 }
-function enter(){entered=true;document.body.classList.add('playing');if(!matchMedia('(pointer:coarse)').matches)renderer.domElement.requestPointerLock()?.catch(()=>{});notify('まず木を集めよう。左長押しで採掘 / Eで配置 / Iでインベントリ / Fで作業台。');}
+function enter(){gameAudio.unlock();entered=true;document.body.classList.add('playing');if(!matchMedia('(pointer:coarse)').matches)renderer.domElement.requestPointerLock()?.catch(()=>{});notify('まず木を集めよう。左長押しで採掘 / Eで配置 / Iでインベントリ / Fで作業台。');}
 $('enter').onclick=enter;try{$('homeLoad').disabled=!localStorage.getItem('block-coaster-world-v6')&&!localStorage.getItem('block-coaster-world-v5');}catch{$('homeLoad').disabled=true;}$('homeLoad').onclick=()=>{enter();$('load').onclick();};$('helpToggle').onclick=()=>{$('help').hidden=!$('help').hidden;if(!$('help').hidden&&document.pointerLockElement)document.exitPointerLock();};
 let hintIndex=0;
 $('hint').onclick=()=>{const hints=['木を左クリック長押し、または素手のEで採掘。Iで原木→木材→棒・作業台をクラフト。','作業台をホットバーへ移し、Eで設置。近くでFを押して木のツルハシを作る。ツルハシを使うと石や鉱石を速く掘れます。','遺跡の下に洞窟が眠っています。鉄は石のツルハシで速く採掘。松明を持って、階段状に掘り進もう。','丸石8個でかまど。原鉄と石炭などを焼いて鉄に。作業台で鉄6個＋棒1本からレール16本を作る。','レールは最後のマスの前後左右につなごう。段差は1ブロックまで。Rで地上へ帰れます。'];notify(hints[Math.min(hintIndex++,hints.length-1)]);};
@@ -347,14 +352,14 @@ $('place').onclick=place;
 function stopRide() { mode = 'build'; player.copy(camera.position); player.y = supportBelow(player.x, player.z, camera.position.y); if (!bodyClear(player.x, player.z, player.y)) player.copy(safeSpawn()); velocity=0;fallStart=null;flying=false; $('ride').textContent = '▶ 乗る'; $('mode').textContent = '一人称 · 建設'; notify('降車しました。地上でも地下でも線路を編集できます。'); }
 function goHome() { if (mode === 'ride') stopRide(); player.copy(safeSpawn()); camera.position.copy(player).add(new THREE.Vector3(0, 1.65, 0)); velocity = 0; fallStart=null;flying=false;keys.clear(); notify('地上へ戻りました。掘った地形と線路は残っています。'); }
 $('home').onclick = goHome;
-function undo() { if (mode === 'ride') stopRide(); if(!rails.length)return;if(gameMode==='survival'&&!roomFor('rail',1)){notify('レールを回収する空きがありません。');return;}rails.pop();if(gameMode==='survival')gain('rail');refreshRails();notify('末尾のレールを回収しました。'); }
-$('undo').onclick=undo; $('clear').onclick=()=>{if(gameMode==='survival'&&!roomFor('rail',rails.length)){notify('全部のレールを回収する空きが足りません。Qで少しずつ回収できます。');return;}if(mode==='ride')stopRide();if(gameMode==='survival'&&rails.length)gain('rail',rails.length);rails=[];refreshRails();notify('線路を回収しました。');};
+function undoLocal() { if (mode === 'ride') stopRide(); if(!rails.length)return;if(gameMode==='survival'&&!roomFor('rail',1)){notify('レールを回収する空きがありません。');return;}rails.pop();if(gameMode==='survival')gain('rail');refreshRails();notify('末尾のレールを回収しました。'); }
+$('undo').onclick=undo; $('clear').onclick=()=>friendAction(()=>{if(gameMode==='survival'&&!roomFor('rail',rails.length)){notify('全部のレールを回収する空きが足りません。Qで少しずつ回収できます。');return;}if(mode==='ride')stopRide();if(gameMode==='survival'&&rails.length)gain('rail',rails.length);rails=[];refreshRails();notify('線路を回収しました。');});
 $('ride').onclick = () => { if (mode === 'ride') { stopRide(); return; } if (rails.length < 2) return; if (!entered) enter(); mode = 'ride'; riding = 0; rideDirection = 1; const delta = railPoint(rails[1]).sub(railPoint(rails[0])); yaw = Math.atan2(-delta.x, -delta.z); pitch = 0; $('ride').textContent = '■ 降りる'; $('mode').textContent = '一人称 · 乗車'; notify('出発！自分で掘ったトンネルと敷いた線路の先へ。マウスで自由に見回せます。'); };
 $('speed').oninput = e => speed = +e.target.value;
 const SAVE_KEY='block-coaster-world-v6';
 function snapshot(){return {version:6,seed:3,edits:[...edits],rails:rails.map(r=>({...r})),caveFound,caveRidden,mined,player:mode==='ride'?[camera.position.x,supportBelow(camera.position.x,camera.position.z,camera.position.y),camera.position.z]:player.toArray(),view:[yaw,pitch],bag:bag.map(s=>s?{...s}:null),selected,gameMode,health,food,worldTime,craftGrid:craftGrid.map(s=>s?{...s}:null),craftSize,equipment:equipment.map(s=>s?{...s}:null),chests:JSON.parse(JSON.stringify(chests)),furnaceJobs:furnaceJobs.map(j=>({...j})),furnaceFuel:{...furnaceFuel},visitedRegions:[...visitedRegions],visitedBiomes:[...visitedBiomes],defeatedMobs:[...defeatedMobs],lootedChestKeys:[...lootedChestKeys]};}
-$('save').onclick=()=>{try{localStorage.setItem(SAVE_KEY,JSON.stringify(snapshot()));notify('地形・建築・線路・装備・持ち物・探索地図を保存しました。');}catch{notify('保存できません。ブラウザの空き容量・保存設定を確認してください。');}};
-$('load').onclick=()=>{try{
+$('save').onclick=()=>{if(friendPending){notify('同期が終わってから保存してください。');return;}try{localStorage.setItem(SAVE_KEY,JSON.stringify(snapshot()));notify('地形・建築・線路・装備・持ち物・探索地図を保存しました。');}catch{notify('保存できません。ブラウザの空き容量・保存設定を確認してください。');}};
+$('load').onclick=()=>{if(friend?.connected()){notify('友達と接続中は読込できません。切断してから読み込んでください。');return;}try{
  let raw=localStorage.getItem(SAVE_KEY),migrated=false;if(!raw){raw=localStorage.getItem('block-coaster-world-v5');if(raw)migrated=true;}if(!raw){notify('このブラウザに保存はありません。');return;}
  const parsed=JSON.parse(raw),source=migrated?migrateV5(parsed):parsed;
  const{data:s,edits:validatedEdits}=validateSnapshot(source,{world,itemDefs,equipmentSlots,minY:MIN_Y,maxY:MAX_Y,blockTypes:T});
@@ -384,15 +389,18 @@ renderer.domElement.addEventListener('pointermove',e=>{
 function tickTouchHold(time){if(touchPointer!==null&&touchHoldAt&&time>=touchHoldAt&&!touchMoved&&!panel){touchHoldAt=0;mineHeld=true;beginMine();}}
 renderer.domElement.addEventListener('wheel',e=>{if(entered&&!panel&&$('mapPanel').hidden){e.preventDefault();select((selected+(e.deltaY>0?1:8))%9);}},{passive:false});
 window.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(['Space','ArrowUp','ArrowLeft','ArrowDown','ArrowRight','KeyW','KeyA','KeyS','KeyD','KeyE','KeyI','KeyC','KeyF','Escape'].includes(e.code))e.preventDefault();
- if(e.code==='Escape'){if(!$('mapPanel').hidden)closeMap();else if(panel)closePanel();else $('help').hidden=true;return;}if(e.repeat)return;
- if(e.code==='KeyM'){toggleMap();return;}if(!$('mapPanel').hidden)return;if(e.code==='KeyI'||e.code==='KeyC'){openPanel();return;}if(e.code==='KeyF'){if(panel)closePanel();else workstation();return;}if(panel)return;
+ if(e.code==='Escape'){if(!$('mapPanel').hidden)closeMap();else if(panel)closePanel();else if(!$('friendsPanel').hidden)$('friendsPanel').hidden=true;else $('help').hidden=true;return;}if(e.repeat)return;
+ if(!$('friendsPanel').hidden)return;
+ if(e.code==='KeyM'){toggleMap();return;}if(!$('mapPanel').hidden)return;if(e.code==='KeyI'||e.code==='KeyC'){openPanel();return;}if(e.code==='KeyF'){if(panel)closePanel();else workstation();return;}if(panel||!$('friendsPanel').hidden)return;
  keys.add(e.code);if(e.code==='KeyE')place();if(e.code==='KeyQ')undo();if(e.code==='KeyR')goHome();if(e.code==='KeyV'&&gameMode==='creative'){flying=!flying;velocity=0;notify(flying?'飛行：矢印で移動、Spaceで上昇、Shiftで下降。Vで着地。':'飛行を終了しました。');}if(/^Digit[1-9]$/.test(e.code))select(+e.code.slice(-1)-1);
 });
 window.addEventListener('keyup',e=>keys.delete(e.code));
 window.addEventListener('blur',()=>{keys.clear();stopPrimary();});document.addEventListener('pointerlockchange',()=>{keys.clear();if(!document.pointerLockElement)stopPrimary();});
 document.querySelectorAll('[data-key]').forEach(b=>{b.addEventListener('pointerdown',e=>{e.preventDefault();if(!panel)keys.add(b.dataset.key);b.setPointerCapture(e.pointerId);});for(const event of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(event,()=>keys.delete(b.dataset.key));});
 $('mine').addEventListener('pointerdown',e=>{e.preventDefault();mineHeld=true;beginMine();$('mine').setPointerCapture(e.pointerId);});for(const event of ['pointerup','pointercancel','lostpointercapture'])$('mine').addEventListener(event,()=>{mineHeld=false;mining=null;});
+let walkPhase=0,stepDistance=0;
 function walk(dt) {
+ const oldX=player.x,oldZ=player.z;
  if(flying&&gameMode==='creative'){const up=(keys.has('Space')?1:0)-(keys.has('ShiftLeft')?1:0);const dx=((keys.has('ArrowRight')||keys.has('KeyD'))?1:0)-((keys.has('ArrowLeft')||keys.has('KeyA'))?1:0),dz=((keys.has('ArrowDown')||keys.has('KeyS'))?1:0)-((keys.has('ArrowUp')||keys.has('KeyW'))?1:0);const nx=player.x+(dx*Math.cos(yaw)+dz*Math.sin(yaw))*8*dt,nz=player.z+(-dx*Math.sin(yaw)+dz*Math.cos(yaw))*8*dt,ny=THREE.MathUtils.clamp(player.y+up*8*dt,MIN_Y+1,MAX_Y+14);if(bodyClear(nx,nz,ny))player.set(nx,ny,nz);camera.position.copy(player).add(new THREE.Vector3(0,1.65,0));return;}
 
   let floor = walkingFloor(player.x, player.z, player.y + .1); if (player.y <= floor + .02) { player.y = floor; velocity = keys.has('Space') ? 7 : 0;if(fallStart!==null){const fall=fallStart-player.y;fallStart=null;if(gameMode==='survival'&&fall>3){damage(Math.floor(fall-3),'落下');}} }
@@ -404,7 +412,11 @@ function walk(dt) {
   tryMove(nx, player.z); tryMove(player.x, nz); velocity -= 18 * dt;
   floor = walkingFloor(player.x, player.z, player.y + .1); const cap = walkingCeiling(player.x, player.z, player.y) - BODY;
   let next = player.y + velocity * dt; if (next > cap) { next = cap; velocity = Math.min(0, velocity); } if (next <= floor) { next = floor; velocity = 0; }
-  player.y = next; camera.position.copy(player); camera.position.y += 1.65;
+  player.y = next;
+  const moved=Math.hypot(player.x-oldX,player.z-oldZ),onGround=velocity===0;
+  if(onGround&&moved>.001){walkPhase+=moved*9;stepDistance+=moved;if(stepDistance>.95){stepDistance=0;const c=cellAt(player.x,player.z),t=voxel(c.x,Math.floor(player.y)-1,c.z);gameAudio.play([T.GRASS,T.DIRT,T.SAND,T.SNOW,T.LEAVES].includes(t)?'grass':[T.WOOD,T.PLANK].includes(t)?'wood':'step');}}
+  camera.position.copy(player); camera.position.y += 1.65+(onGround&&moved>.001?Math.sin(walkPhase)*.025:0);
+  const fov=keys.has('ShiftLeft')&&moved>.001?79:72;camera.fov+=(fov-camera.fov)*Math.min(1,dt*8);camera.updateProjectionMatrix();
 }
 function ride(dt) { riding += dt * speed * rideDirection; if (riding > routeLength) { riding = routeLength; rideDirection = -1; } else if (riding < 0) { riding = 0; rideDirection = 1; } let d = riding, i = 0; while (i < lengths.length - 1 && d > lengths[i]) { d -= lengths[i]; i++; } camera.position.lerpVectors(railPoint(rails[i]), railPoint(rails[i + 1]), d / lengths[i]); camera.position.y += 1.15; $('target').textContent = `走行 ${Math.round(riding)} / ${Math.round(routeLength)} m · ${rideDirection === 1 ? '往路' : '復路'}`; }
 function updateExploration(dt,time){
@@ -415,7 +427,7 @@ function updateExploration(dt,time){
   const feet = mode === 'build' ? player.y : camera.position.y - 1.27, c = cellAt(camera.position.x, camera.position.z);
   const regionKey=`${Math.floor(c.x/64)},${Math.floor(c.z/64)}`,biome=world.biome(c.x,c.z);visitedRegions.add(regionKey);if(entered&&!visitedBiomes.has(biome.id)){visitedBiomes.add(biome.id);notify(biome.name+'を発見！新しい地形と構造物を探そう。');}
   const depth = inside(c.x, c.z) ? Math.max(0, height(c.x,c.z) - feet) : 0, underground = depth > 2;
-  caveMix += ((underground ? 1 : 0) - caveMix) * Math.min(1, dt * 3); ambient.intensity=THREE.MathUtils.lerp(.18+1.7*daylight,.26,caveMix);sun.intensity=THREE.MathUtils.lerp(2.5*daylight,.06,caveMix); lantern.intensity = caveMix * 7;
+  caveMix += ((underground ? 1 : 0) - caveMix) * Math.min(1, dt * 3); ambient.intensity=THREE.MathUtils.lerp((nightAt(worldTime)?.18:.65)+1.3*daylight,.26,caveMix);sun.intensity=THREE.MathUtils.lerp(2.5*daylight,.06,caveMix); lantern.intensity = caveMix * 7;
   scene.background.set('#19344b').lerp(new THREE.Color('#a4d8ed'),daylight).lerp(new THREE.Color('#101f2b'), caveMix); scene.fog.color.copy(scene.background); scene.fog.near = THREE.MathUtils.lerp(viewRadius*CHUNK*.55,16,caveMix); scene.fog.far = THREE.MathUtils.lerp(viewRadius*CHUNK*.97,Math.min(42,viewRadius*CHUNK*.9),caveMix);
   const landmark = world.structuresNear(c.x,c.z,20).find(s => Math.hypot(c.x - s.x, c.z - s.z) < 6 && Math.abs(feet - s.y) < 12);
   $('location').textContent = `高度 ${Math.round(feet)} m · X${c.x} Z${c.z} · ${underground ? `地下 ${Math.round(depth)} m` : landmark?landmark.name:world.biome(c.x,c.z).name}`;
@@ -430,13 +442,15 @@ const monsters=new NightCreatures({
  safeFloor:(x,y,z)=>{const c=cellAt(x,z);return solid(c.x,Math.floor(y)-1,c.z)&&![T.WATER,T.LAVA].includes(voxel(c.x,Math.floor(y),c.z));},
  light:lightAt,visible:clearSight,
  sky:(x,y,z)=>{const c=cellAt(x,z);for(let iy=Math.ceil(y);iy<MAX_Y;iy++)if(solid(c.x,iy,c.z))return false;return true;},
- spawn:c=>monsterVisuals.spawn(c),remove:c=>monsterVisuals.remove(c),update:c=>monsterVisuals.update(c),hurt:(amount,name)=>{damage(amount,name);notify(name+'の攻撃！剣で戦うか、松明の明かりへ逃げよう。');},
- defeated:c=>{defeatedMobs.add(c.id);if(gameMode==='survival')gain(c.kind==='slime'?'clay':'moss',1);notify(c.name+'を倒しました。');},
- hit:c=>{handSwing=.3;const stack=held();if(gameMode==='survival'&&stack&&itemDefs[stack.id].tool){if(!--stack.durability){bag[selected]=null;notify('道具が壊れました。');}renderInventory();}},
+ spawn:c=>monsterVisuals.spawn(c),remove:c=>monsterVisuals.remove(c),update:c=>monsterVisuals.update(c),hurt:(amount,name,actor)=>{if(actor?.remote)friend.send({type:'hurt',amount,name});else{damage(amount,name);notify(name+'の攻撃！剣で戦うか、松明の明かりへ逃げよう。');}},
+ players:()=>friend.connected()&&friendPose?[{x:friendPose.position[0],y:friendPose.position[1],z:friendPose.position[2],remote:true,invulnerable:friendPose.creative||friendPose.mode==='ride'}]:[],
+ defeated:c=>{defeatedMobs.add(c.id);if(!friendRemoteAttack&&gameMode==='survival')gain(c.kind==='slime'?'clay':'moss',1);notify(c.name+'を倒しました。');},
+ hit:c=>{if(friendRemoteAttack)return;handSwing=.3;const stack=held();if(gameMode==='survival'&&stack&&itemDefs[stack.id].tool){if(!--stack.durability){bag[selected]=null;notify('道具が壊れました。');}renderInventory();}},
 });
 function aimDirection(){return touchAim?new THREE.Vector3(touchAim.x,touchAim.y,.5).unproject(camera).sub(camera.position).normalize():camera.getWorldDirection(new THREE.Vector3());}
-function strikeMonster(block){const creature=monsters.aimed(camera.position,aimDirection(),block?.distance??Infinity);if(!creature)return false;return monsters.strike(creature,held()?(itemDefs[held().id].attack??1):1);}
+function strikeMonster(block){const creature=monsters.aimed(camera.position,aimDirection(),block?.distance??Infinity);if(!creature)return false;if(friend.connected()&&friend.role==='guest'){if(performance.now()-friendAttackTime>.4*1000){friendAttackTime=performance.now();friend.send({type:'attack',id:creature.id,power:held()?(itemDefs[held().id].attack??1):1});}return true;}return monsters.strike(creature,held()?(itemDefs[held().id].attack??1):1);}
 function tickMonsters(dt){const actor={x:camera.position.x,y:mode==='build'?player.y:camera.position.y-1.65,z:camera.position.z};monsters.tick(dt,{enabled:entered,night:nightAt(worldTime),player:actor,invulnerable:gameMode==='creative'||mode==='ride'||flying});const protectedByTorch=!!lightAt(actor.x,actor.y+.9,actor.z);$('nightStatus').textContent=nightAt(worldTime)?protectedByTorch?'松明の明かり · 安全圏':`夜の探索 · 周囲のモンスター ${monsters.creatures.length}`:'昼の探索 · 夜に備えて松明を作ろう';}
+const voxelSky=createVoxelSky(THREE,scene);
 const cloudGroup=new THREE.Group();scene.add(cloudGroup);
 const cloudMaterial=new THREE.MeshBasicMaterial({color:0xe7eef0,transparent:true,opacity:.8});
 for(let k=0;k<10;k++){const c=new THREE.Mesh(new THREE.BoxGeometry(10+k%3*4,1.8,6+k%2*5),cloudMaterial);c.position.set((k*29)%120-60,MAX_Y+14+(k%3)*4,(k*47)%120-60);cloudGroup.add(c);}
@@ -466,11 +480,13 @@ $('mapToggle').onclick=toggleMap;$('closeMap').onclick=()=>closeMap();$('distanc
 loadGeneratedArt(setItemAtlas,()=>{artReady++;for(const key of Object.keys(iconCache))delete iconCache[key];lastHeld='\0';renderInventory();}).catch(error=>console.warn(error.message));
 
 rebuildAll();refreshRails(); let last = performance.now();
-function frame(t) { const dt = Math.max(0,Math.min((t-last)/1000,.07)); last = t; if(panel||!$('mapPanel').hidden){tickFurnace(dt);requestAnimationFrame(frame);return;}if(entered&&!panel&&$('mapPanel').hidden){if(mode==='build')walk(dt);else ride(dt);}updateStreaming();pumpChunks();tickFurnace(dt);tickMining(dt);updateTorches(dt);tickTouchHold(t);if(!mining){$('breakProgress').hidden=true;crackMesh.visible=false;crackStage=-1;}else{crackMesh.visible=true;crackMesh.position.set(mining.x-OFFSET+.5,mining.y+.5,mining.z-OFFSET+.5);const stage=Math.floor(mining.progress/mining.time*8);if(stage!==crackStage){crackStage=stage;const g=crackCanvas.getContext('2d');g.clearRect(0,0,16,16);g.strokeStyle='#171b17bb';g.lineWidth=1;for(let i=0;i<=stage+2;i++){g.beginPath();g.moveTo(8,8);g.lineTo((i*7)%16,(i*11)%16);g.lineTo((i*5+2)%16,(i*3+9)%16);g.stroke();}crackTexture.needsUpdate=true;}}updateHand(dt,t);cloudGroup.position.x=camera.position.x+Math.sin(worldTime*.003)*8;cloudGroup.position.z=camera.position.z; camera.rotation.set(pitch, yaw, 0, 'YXZ'); updateExploration(dt, t);tickMonsters(dt); aim(); if (!target && mode === 'build'&&!monsters.aimed(camera.position,aimDirection(),traceVoxel()?.distance??Infinity)) $('target').textContent = '地面や壁を狙う · Eで操作'; renderer.render(scene, camera); requestAnimationFrame(frame); }
+function frame(t) { const dt = Math.max(0,Math.min((t-last)/1000,.07)); last = t; if(panel||!$('mapPanel').hidden||!$('friendsPanel').hidden){tickFurnace(dt);if(friend.connected()&&friendReady){updateExploration(dt,t);if(friend.role==='host')tickMonsters(dt);tickFriends(dt);blockParticles.tick(dt);voxelSky.tick(worldTime,camera,caveMix);renderer.render(scene,camera);}requestAnimationFrame(frame);return;}if(entered&&!panel&&$('mapPanel').hidden){if(mode==='build')walk(dt);else ride(dt);}updateStreaming();pumpChunks();tickFurnace(dt);tickMining(dt);updateTorches(dt);tickTouchHold(t);if(!mining){$('breakProgress').hidden=true;crackMesh.visible=false;crackStage=-1;}else{crackMesh.visible=true;crackMesh.position.set(mining.x-OFFSET+.5,mining.y+.5,mining.z-OFFSET+.5);const stage=Math.floor(mining.progress/mining.time*8);if(stage!==crackStage){crackStage=stage;const g=crackCanvas.getContext('2d');g.clearRect(0,0,16,16);g.strokeStyle='#171b17bb';g.lineWidth=1;for(let i=0;i<=stage+2;i++){g.beginPath();g.moveTo(8,8);g.lineTo((i*7)%16,(i*11)%16);g.lineTo((i*5+2)%16,(i*3+9)%16);g.stroke();}crackTexture.needsUpdate=true;}}blockParticles.tick(dt);voxelSky.tick(worldTime,camera,caveMix);updateHand(dt,t);cloudGroup.position.x=camera.position.x+Math.sin(worldTime*.003)*8;cloudGroup.position.z=camera.position.z; camera.rotation.set(pitch, yaw, 0, 'YXZ'); updateExploration(dt, t);if(friend.role!=='guest'||!friend.connected())tickMonsters(dt);tickFriends(dt); aim(); if (!target && mode === 'build'&&!monsters.aimed(camera.position,aimDirection(),traceVoxel()?.distance??Infinity)) $('target').textContent = '地面や壁を狙う · Eで操作'; renderer.render(scene, camera); requestAnimationFrame(frame); }
 requestAnimationFrame(frame); window.addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 renderInventory();notify('木を集めてクラフト。鉄と松明を携えて、枝分かれする地底の世界へ。');
 window.blockCoaster={
+ experienceStats:()=>({sound:gameAudio.enabled(),fov:camera.fov,...blockParticles.stats()}),
  getState:()=>({mode,entered,mining:mining?{x:mining.x,y:mining.y,z:mining.z,time:mining.time,progress:mining.progress}:null,position:camera.position.toArray(),feet:player.y,direction:camera.getWorldDirection(new THREE.Vector3()).toArray(),yaw,pitch,target:target?{...target}:null,valid,tool,connected:connectedToCave(),heights:[...legacy.heights],...snapshot()}),
+ friendState:()=>({peer:friend.pc?.connectionState,ice:friend.pc?.iceConnectionState,role:friend.role,connected:friend.connected(),ready:friendReady,pending:!!friendPending,revision:friendRevision,avatar:friendAvatar.stats()}),
  monsterState:()=>({night:nightAt(worldTime),safe:!!lightAt(player.x,player.y+.9,player.z),active:monsters.snapshot(),visuals:monsterVisuals.count(),...monsters.stats}),
  terrainRange:()=>[Math.min(...legacy.heights),Math.max(...legacy.heights)],
  caveLayout:()=>{const out=[];for(let z=0;z<64;z++)for(let x=0;x<64;x++){let start=null;for(let y=MIN_Y;y<MAX_Y;y++){if(world.isCave(x,y,z)){if(start===null)start=y;}else if(start!==null){out.push({x,z,y:start,ceiling:y});start=null;}}}return out;},
@@ -480,3 +496,90 @@ window.blockCoaster={
  streamingStats:()=>({rendered:chunks.size,pending:chunkQueue.length,viewRadius,...world.stats()}),
  artStats:()=>({terrainReady:!!terrainAtlasImage,terrainTiles:16,ready:artReady,generatedIcons:104,source:'ChatGPT image generation'}),equipmentState:()=>({slots:equipment.map(s=>s?{...s}:null),armor:armorPoints()}),itemCatalog:()=>JSON.parse(JSON.stringify(itemDefs)),availableRecipes:()=>availableRecipes().map(r=>({id:r.id,n:r.n})),
 };
+
+function mineBlock(...args){return friendAction(()=>mineBlockLocal(...args));}
+
+function place(...args){return friendAction(()=>placeLocal(...args));}
+
+function moveSlot(...args){return friendAction(()=>moveSlotLocal(...args));}
+
+function openPanel(...args){return friendAction(()=>openPanelLocal(...args));}
+
+function undo(...args){return friendAction(()=>undoLocal(...args));}
+
+// The invitation side owns the terrain revision; each player keeps their own bag.
+const friendAvatar=createFriendAvatar(THREE,scene);
+let friendReady=false,friendRevision=0,friendFingerprint='',friendPending=null,friendLastWorld=null,friendPose=null,friendTimer=0,friendWorldTimer=0,friendRequest=0,friendRemoteMonsters=new Map(),friendSentRevision=-1,friendRemoteAttack=false,friendAttackTime=0;
+const sharedFields=['edits','rails','chests','lootedChestKeys','caveFound','caveRidden','mined','defeatedMobs'];
+function sharedWorld(s=snapshot()){const result={};for(const key of sharedFields)result[key]=s[key];result.worldTime=s.worldTime;return result;}
+function sharedFingerprint(value){return JSON.stringify(sharedFields.map(key=>value[key]));}
+function validateShared(value,initial=false){if(!value||typeof value!=='object')throw Error('World');const candidate=snapshot();for(const key of [...sharedFields,'worldTime']){if(!Object.hasOwn(value,key))throw Error('World field');candidate[key]=value[key];}if(initial){candidate.furnaceJobs=[];candidate.furnaceFuel={};}else{const changes=new Map(value.edits);const isFurnace=key=>{const[x,y,z]=decodeKey(key);return(changes.has(key)?changes.get(key):world.baseVoxel(x,y,z))===T.FURNACE;};candidate.furnaceJobs=candidate.furnaceJobs.filter(j=>isFurnace(j.index));candidate.furnaceFuel=Object.fromEntries(Object.entries(candidate.furnaceFuel).filter(([key])=>isFurnace(key)));}return validateSnapshot(candidate,{world,itemDefs,equipmentSlots,minY:MIN_Y,maxY:MAX_Y,blockTypes:T}).data;}
+function applyShared(value,initial=false){
+ const s=validateShared(value,initial),nextEdits=new Map(s.edits);let terrainChanged=false;
+ for(const[key,type]of nextEdits)if(edits.get(key)!==type){const[x,y,z]=decodeKey(key);setVoxel(x,y,z,type);terrainChanged=true;}
+ for(const key of [...edits.keys()])if(!nextEdits.has(key)){const[x,y,z]=decodeKey(key);world.set(x,y,z,world.baseVoxel(x,y,z));for(const[dx,dz]of [[0,0],[-1,0],[1,0],[0,-1],[0,1]])dirty.add(chunkKey(x+dx,z+dz));terrainChanged=true;}
+ if(!initial){for(const j of furnaceJobs)if(!s.furnaceJobs.some(next=>next.index===j.index&&next.id===j.id&&next.input===j.input)){gain(j.input,1);notify('友達がかまどを回収したため、精錬の原料を戻しました。');}furnaceJobs=s.furnaceJobs;furnaceFuel=s.furnaceFuel;}
+ const railChanged=JSON.stringify(rails)!==JSON.stringify(s.rails);if(railChanged&&mode==='ride')stopRide();rails=s.rails;chests=s.chests;lootedChestKeys=new Set(s.lootedChestKeys);caveFound=s.caveFound;caveRidden=s.caveRidden;mined=s.mined;defeatedMobs=new Set(s.defeatedMobs);worldTime=s.worldTime;
+ if(initial){furnaceJobs=[];furnaceFuel={};if(panel)closePanel();monsters.clear();player.copy(safeSpawn());if(friendPose){const [x,y,z]=friendPose.position;for(const[dx,dz]of [[2,0],[-2,0],[0,2],[0,-2],[0,0]]){const floor=walkingFloor(x+dx,z+dz,y+1);if(bodyClear(x+dx,z+dz,floor)){player.set(x+dx,floor,z+dz);break;}}}camera.position.copy(player).add(new THREE.Vector3(0,1.65,0));velocity=0;fallStart=null;rebuildAll();}
+ else if(terrainChanged)flushChunks();if(terrainChanged)refreshTorches();if(railChanged)refreshRails();
+ if(!bodyClear(player.x,player.z,player.y)){let escaped=false;for(const[dx,dz]of [[1,0],[-1,0],[0,1],[0,-1]])if(bodyClear(player.x+dx,player.z+dz,player.y)){player.x+=dx;player.z+=dz;escaped=true;break;}if(!escaped)goHome();}
+ if(panel?.type==='chest'&&!chests[panel.index]){panel=null;$('inventory').hidden=true;}renderInventory();updateMission();
+}
+function personalState(){return{bag:bag.map(s=>s?{...s}:null),craftGrid:craftGrid.map(s=>s?{...s}:null),equipment:equipment.map(s=>s?{...s}:null),heldSlot:heldSlot?{...heldSlot}:null};}
+function restorePersonal(s){bag=s.bag;craftGrid=s.craftGrid;equipment=s.equipment;heldSlot=s.heldSlot;renderInventory();}
+function friendAction(run){
+ if(!entered&&friend.connected())return;
+ if(friendPending){notify('友達の世界と同期中です。');return;}
+ if(!friend.connected()||friend.role!=='guest'||!friendReady)return run();
+ const before=sharedWorld(),personal=personalState();run();const after=sharedWorld();
+ if(sharedFingerprint(before)===sharedFingerprint(after))return;
+ const id=++friendRequest;friendPending={id,personal,before,time:performance.now()};
+ if(!friend.send({type:'edit',id,revision:friendRevision,world:after})){friendPending=null;applyShared(before);restorePersonal(personal);notify('接続を確認してください。変更を戻しました。');}
+}
+function hostWorld(){const value=sharedWorld(),fingerprint=sharedFingerprint(value);if(fingerprint!==friendFingerprint){friendRevision++;friendFingerprint=fingerprint;}return value;}
+function syncRemoteMonsters(list){if(!Array.isArray(list)||list.length>6)return;const seen=new Set();for(const raw of list){if(!raw||typeof raw.id!=='string'||!['zombie','slime'].includes(raw.kind)||![raw.x,raw.y,raw.z,raw.hp].every(Number.isFinite))continue;const c={...raw,height:raw.kind==='zombie'?1.8:.8,radius:raw.kind==='zombie'?.3:.38,angle:raw.angle||0,age:raw.age||0,flash:raw.flash||0};seen.add(c.id);if(!friendRemoteMonsters.has(c.id))monsterVisuals.spawn(c);friendRemoteMonsters.set(c.id,c);monsterVisuals.update(c);}for(const[id,c]of friendRemoteMonsters)if(!seen.has(id)){monsterVisuals.remove(c);friendRemoteMonsters.delete(id);}monsters.creatures=[...friendRemoteMonsters.values()];}
+function clearFriend(){friendReady=false;friendPose=null;friendAvatar.set(null);friendSentRevision=-1;if(friendPending){const pending=friendPending;friendPending=null;try{applyShared(friendLastWorld||pending.before);restorePersonal(pending.personal);}catch{}}for(const c of friendRemoteMonsters.values())monsterVisuals.remove(c);friendRemoteMonsters.clear();monsters.clear();}
+const friend=new FriendConnection({
+ state(text){$('friendsStatus').textContent=text;$('friendsToggle').textContent=friend?.connected()?'友達 2人':'友達と遊ぶ';if(text==='ひとりで冒険中')clearFriend();},
+ message(value){try{
+  if(value.type!=='connected'&&!friend.connected())return;
+  if(value.type==='connected'){friendReady=friend.role==='host';friendFingerprint=sharedFingerprint(sharedWorld());friendRevision=0;if(!entered)enter();if(friend.role==='host'){friend.send({type:'pose',pose:localPose()});friend.send({type:'world',initial:true,revision:friendRevision,world:hostWorld()});}return;}
+  if(value.type==='pose'){const pose=cleanFriendPose(value.pose);if(pose){friendPose=pose;friendAvatar.set(pose);}return;}
+  if(value.type==='world'&&friend.role==='guest'){
+   if(!Number.isSafeInteger(value.revision)||value.revision<0)return;
+   const ack=friendPending&&value.ack===friendPending.id;if(friendPending&&!ack)return;
+   if(value.revision<friendRevision)return;
+   const failed=ack&&value.ok===false,pending=friendPending;applyShared(value.world,!!value.initial);friendLastWorld=value.world;friendRevision=value.revision;friendReady=true;if(ack){friendPending=null;if(failed){restorePersonal(pending.personal);notify('友達が先に変更した場所です。変更を戻しました。');}}
+   if(value.initial){$('friendsPanel').hidden=true;notify('友達の世界に入りました！一緒に掘って、拠点と線路を作ろう。');}return;
+  }
+  if(value.type==='edit'&&friend.role==='host'&&friendReady){
+   const current=hostWorld();let ok=false;if(Number.isSafeInteger(value.id)&&value.revision===friendRevision){try{validateShared(value.world);applyShared({...value.world,worldTime:worldTime});ok=true;}catch{}}
+   const finalWorld=ok?hostWorld():current;friend.send({type:'world',ack:value.id,ok,revision:friendRevision,world:finalWorld});return;
+  }
+  if(value.type==='clock'&&friend.role==='guest'&&Number.isFinite(value.time)&&value.time>=0)worldTime=value.time;
+  if(value.type==='creatures'&&friend.role==='guest')syncRemoteMonsters(value.list);
+  if(value.type==='attack'&&friend.role==='host'&&friendPose){const c=monsters.creatures.find(c=>c.id===value.id);const p=friendPose.position,power=Math.min(8,Math.max(1,Number(value.power)||1));if(c&&performance.now()-friendAttackTime>380&&Math.hypot(p[0]-c.x,p[1]-c.y,p[2]-c.z)<4.2&&clearSight(p[0],p[1]+1,p[2],c.x,c.y+.6,c.z)){friendAttackTime=performance.now();const timer=monsters.attackTimer;monsters.attackTimer=0;friendRemoteAttack=true;try{monsters.strike(c,power);friend.send({type:'hit',kind:c.kind,killed:c.hp<=0});}finally{friendRemoteAttack=false;monsters.attackTimer=timer;}}return;}
+  if(value.type==='hurt'&&friend.role==='guest'&&Number.isFinite(value.amount)&&value.amount>0&&value.amount<=3)damage(value.amount,String(value.name).slice(0,20));
+  if(value.type==='hit'&&friend.role==='guest'){handSwing=.3;const stack=held();if(gameMode==='survival'&&stack&&itemDefs[stack.id].tool){if(!--stack.durability)bag[selected]=null;}if(value.killed&&gameMode==='survival')gain(value.kind==='slime'?'clay':'moss');renderInventory();}
+  if(value.type==='chat'&&typeof value.text==='string')addFriendChat(friendPose?.name||'友達',value.text);
+ }catch(e){console.error('Friend synchronization:',e);notify('友達のデータを読み取れませんでした。接続を終了します。');friend.close();}}
+});
+function localPose(){return{position:[camera.position.x,mode==='ride'?camera.position.y-1.65:player.y,camera.position.z],yaw,pitch,name:$('friendName').value||'旅人',mode,creative:gameMode==='creative'};}
+function tickFriends(dt){
+ friendAvatar.tick(dt);if(friend.connected()&&friend.role==='guest'){$('nightStatus').textContent=nightAt(worldTime)?lightAt(player.x,player.y+.9,player.z)?'松明の明かり · 安全圏':`夜の探索 · 周囲のモンスター ${monsters.creatures.length}`:'昼の探索 · 夜に備えて松明を作ろう';}if(!friend.connected()||!friendReady)return;friendTimer+=dt;friendWorldTimer+=dt;
+ if(friendTimer>.12){friendTimer=0;if(friend.queue.length<8)friend.send({type:'pose',pose:localPose()});}
+ if(friend.role==='host'&&friendWorldTimer>.3){friendWorldTimer=0;const value=hostWorld();if(friendSentRevision!==friendRevision){if(friend.send({type:'world',revision:friendRevision,world:value}))friendSentRevision=friendRevision;}else friend.send({type:'clock',time:worldTime});friend.send({type:'creatures',list:monsters.creatures.map(({id,kind,name,x,y,z,hp,state,angle,age,flash})=>({id,kind,name,x,y,z,hp,state,angle,age,flash}))});}
+ if(friendPending&&performance.now()-friendPending.time>12000){notify('同期の応答がありません。接続を終了して変更を戻します。');friend.close();}
+}
+function showFriends(){stopPrimary();keys.clear();if(document.pointerLockElement)document.exitPointerLock();$('friendsPanel').hidden=false;}
+$('friendsToggle').onclick=showFriends;$('homeFriends').onclick=showFriends;$('closeFriends').onclick=()=>{$('friendsPanel').hidden=true;};
+async function friendButton(button,run){button.disabled=true;try{await run();}catch(e){$('friendsStatus').textContent=e.message;}finally{button.disabled=false;}}
+$('createInvite').onclick=()=>friendButton($('createInvite'),async()=>{const code=await friend.invite();const base=location.protocol.startsWith('http')?location.origin+location.pathname:'https://yuseimorishima.github.io/morishi.github.io-minecraft-/';$('friendOutput').value=base+'#friend='+encodeURIComponent(code);$('friendOutputLabel').textContent='① この招待リンクを友達に送る';$('friendInput').value='';$('friendInputLabel').textContent='② 友達からの返信コードをここに貼る';$('acceptFriend').hidden=false;$('joinFriend').hidden=true;});
+$('joinFriend').onclick=()=>friendButton($('joinFriend'),async()=>{const code=await friend.join($('friendInput').value);$('friendOutput').value=code;$('friendOutputLabel').textContent='返信コードを招待してくれた友達に送る';$('acceptFriend').hidden=true;});
+$('acceptFriend').onclick=()=>friendButton($('acceptFriend'),async()=>{await friend.accept($('friendInput').value);});
+$('disconnectFriend').onclick=()=>{friend.close();$('joinFriend').hidden=false;$('acceptFriend').hidden=true;$('friendOutput').value='';$('friendInputLabel').textContent='招待リンク／接続コード';};
+$('copyFriend').onclick=async()=>{const text=$('friendOutput').value;if(!text)return;try{await navigator.clipboard.writeText(text);$('friendsStatus').textContent='コピーしました。友達に送ってください。';}catch{$('friendOutput').focus();$('friendOutput').select();$('friendsStatus').textContent='文字を選択しました。コピーして友達に送ってください。';}};
+function addFriendChat(name,text){const row=document.createElement('p');row.textContent=name+'：'+String(text).slice(0,160);$('friendChatLog').append(row);while($('friendChatLog').children.length>12)$('friendChatLog').firstChild.remove();$('friendChatLog').scrollTop=$('friendChatLog').scrollHeight;notify(row.textContent);}
+$('friendChatForm').onsubmit=e=>{e.preventDefault();const text=$('friendChatInput').value.trim().slice(0,160);if(!text||!friend.connected())return;friend.send({type:'chat',text});addFriendChat($('friendName').value||'自分',text);$('friendChatInput').value='';};
+$('soundToggle').onclick=()=>{gameAudio.unlock();const enabled=gameAudio.setEnabled(!gameAudio.enabled());$('soundToggle').textContent=enabled?'音 ON':'音 OFF';};
+try{const invite=new URLSearchParams(location.hash.slice(1)).get('friend');if(invite){$('friendInput').value=invite;showFriends();history.replaceState(null,'',location.pathname+location.search);}}catch{}

@@ -27,9 +27,11 @@ export class NightCreatures {
  }
  tick(dt,{enabled,night,player,invulnerable=false}){
   this.attackTimer=Math.max(0,this.attackTimer-dt);if(!enabled)return;
-  this.spawnTimer-=dt;if(night&&this.spawnTimer<=0){this.spawnTimer=4;this.spawn(player);}
-  const heroLight=this.env.light(player.x,player.y+.9,player.z);
+  const primary={...player,invulnerable},players=[primary,...(this.env.players?.()||[])];
+  this.spawnTimer-=dt;if(night&&this.spawnTimer<=0){this.spawnTimer=4;this.spawn(players[this.serial%players.length]);}
   for(const c of [...this.creatures]){
+   const player=players.reduce((best,p)=>Math.hypot(p.x-c.x,p.z-c.z)<Math.hypot(best.x-c.x,best.z-c.z)?p:best,primary),invulnerable=!!player.invulnerable;
+   const heroLight=this.env.light(player.x,player.y+.9,player.z);
    c.age+=dt;c.cooldown=Math.max(0,c.cooldown-dt);c.flash=Math.max(0,c.flash-dt);c.think-=dt;c.skyTimer-=dt;
    const dx=player.x-c.x,dz=player.z-c.z,distance=Math.hypot(dx,dz);
    if(distance>56){this.remove(c,'far');continue;}
@@ -46,7 +48,7 @@ export class NightCreatures {
     const vx=Math.cos(angle)*speed,vz=Math.sin(angle)*speed;
     if(!this.step(c,vx,vz,dt)&&!this.step(c,vx,0,dt)&&!this.step(c,0,vz,dt)){c.wander+=1.2;c.think=0;}
    }
-   if(!invulnerable&&!heroLight&&!light&&distance<1.55&&Math.abs(player.y-c.y)<1.1&&c.seesHero&&c.cooldown<=0&&this.env.visible(c.x,c.y+.8,c.z,player.x,player.y+.9,player.z)){c.cooldown=1.4;this.stats.attacks++;this.env.hurt(c.damage,c.name);}
+   if(!invulnerable&&!heroLight&&!light&&distance<1.55&&Math.abs(player.y-c.y)<1.1&&c.seesHero&&c.cooldown<=0&&this.env.visible(c.x,c.y+.8,c.z,player.x,player.y+.9,player.z)){c.cooldown=1.4;this.stats.attacks++;this.env.hurt(c.damage,c.name,player);}
    this.env.update?.(c);
   }
  }

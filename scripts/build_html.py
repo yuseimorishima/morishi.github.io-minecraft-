@@ -28,6 +28,8 @@ game += 'const SaveModule = ' + module('save.js', ['validateSnapshot','migrateV5
 game += 'const MiningModule = ' + module('mining.js', ['miningProfile'], 'const B = WorldModule.BLOCKS;') + '\nconst {miningProfile} = MiningModule;\n'
 monster_names = ['nightAt','daylightAt','NightCreatures','createCreatureVisuals']
 game += 'const MonsterModule = ' + module('monsters.js', monster_names) + '\nconst {' + ','.join(monster_names) + '} = MonsterModule;\n'
+game += 'const FriendsModule = ' + module('friends.js', ['FriendConnection','cleanFriendPose','createFriendAvatar','encodeInvitation','decodeInvitation']) + '\nconst {FriendConnection,cleanFriendPose,createFriendAvatar} = FriendsModule;\n'
+game += 'const ExperienceModule = ' + module('experience.js', ['createGameAudio','createBlockParticles','createVoxelSky']) + '\nconst {createGameAudio,createBlockParticles,createVoxelSky} = ExperienceModule;\n'
 import base64
 game += source('game.js').replace("'assets/terrain-atlas.png'", "'data:image/png;base64," + base64.b64encode((root / 'assets/terrain-atlas.png').read_bytes()).decode() + "'")
 library = (root / 'vendor/three.module.js').read_text()
