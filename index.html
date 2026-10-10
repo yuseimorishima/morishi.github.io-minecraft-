@@ -54400,7 +54400,7 @@ window.addEventListener('keyup',e=>keys.delete(e.code));
 window.addEventListener('blur',()=>{keys.clear();stopPrimary();});document.addEventListener('pointerlockchange',()=>{keys.clear();if(!document.pointerLockElement)stopPrimary();});
 document.querySelectorAll('[data-key]').forEach(b=>{b.addEventListener('pointerdown',e=>{e.preventDefault();if(!panel)keys.add(b.dataset.key);b.setPointerCapture(e.pointerId);});for(const event of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(event,()=>keys.delete(b.dataset.key));});
 $('mine').addEventListener('pointerdown',e=>{e.preventDefault();mineHeld=true;beginMine();$('mine').setPointerCapture(e.pointerId);});for(const event of ['pointerup','pointercancel','lostpointercapture'])$('mine').addEventListener(event,()=>{mineHeld=false;mining=null;});
-let walkPhase=0,stepDistance=0;
+let stepDistance=0;
 function walk(dt) {
  const oldX=player.x,oldZ=player.z;
  if(flying&&gameMode==='creative'){const up=(keys.has('Space')?1:0)-(keys.has('ShiftLeft')?1:0);const dx=((keys.has('ArrowRight')||keys.has('KeyD'))?1:0)-((keys.has('ArrowLeft')||keys.has('KeyA'))?1:0),dz=((keys.has('ArrowDown')||keys.has('KeyS'))?1:0)-((keys.has('ArrowUp')||keys.has('KeyW'))?1:0);const nx=player.x+(dx*Math.cos(yaw)+dz*Math.sin(yaw))*8*dt,nz=player.z+(-dx*Math.sin(yaw)+dz*Math.cos(yaw))*8*dt,ny=THREE.MathUtils.clamp(player.y+up*8*dt,MIN_Y+1,MAX_Y+14);if(bodyClear(nx,nz,ny))player.set(nx,ny,nz);camera.position.copy(player).add(new THREE.Vector3(0,1.65,0));return;}
@@ -54416,9 +54416,8 @@ function walk(dt) {
   let next = player.y + velocity * dt; if (next > cap) { next = cap; velocity = Math.min(0, velocity); } if (next <= floor) { next = floor; velocity = 0; }
   player.y = next;
   const moved=Math.hypot(player.x-oldX,player.z-oldZ),onGround=velocity===0;
-  if(onGround&&moved>.001){walkPhase+=moved*9;stepDistance+=moved;if(stepDistance>.95){stepDistance=0;const c=cellAt(player.x,player.z),t=voxel(c.x,Math.floor(player.y)-1,c.z);gameAudio.play([T.GRASS,T.DIRT,T.SAND,T.SNOW,T.LEAVES].includes(t)?'grass':[T.WOOD,T.PLANK].includes(t)?'wood':'step');}}
-  camera.position.copy(player); camera.position.y += 1.65+(onGround&&moved>.001?Math.sin(walkPhase)*.025:0);
-  const fov=keys.has('ShiftLeft')&&moved>.001?79:72;camera.fov+=(fov-camera.fov)*Math.min(1,dt*8);camera.updateProjectionMatrix();
+  if(onGround&&moved>.001){stepDistance+=moved;if(stepDistance>.95){stepDistance=0;const c=cellAt(player.x,player.z),t=voxel(c.x,Math.floor(player.y)-1,c.z);gameAudio.play([T.GRASS,T.DIRT,T.SAND,T.SNOW,T.LEAVES].includes(t)?'grass':[T.WOOD,T.PLANK].includes(t)?'wood':'step');}}
+  camera.position.copy(player); camera.position.y += 1.65;
 }
 function ride(dt) { riding += dt * speed * rideDirection; if (riding > routeLength) { riding = routeLength; rideDirection = -1; } else if (riding < 0) { riding = 0; rideDirection = 1; } let d = riding, i = 0; while (i < lengths.length - 1 && d > lengths[i]) { d -= lengths[i]; i++; } camera.position.lerpVectors(railPoint(rails[i]), railPoint(rails[i + 1]), d / lengths[i]); camera.position.y += 1.15; $('target').textContent = `走行 ${Math.round(riding)} / ${Math.round(routeLength)} m · ${rideDirection === 1 ? '往路' : '復路'}`; }
 function updateExploration(dt,time){
