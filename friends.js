@@ -1,11 +1,12 @@
 // Two-player WebRTC data connection. Signaling is exchanged by the players.
-const PROTOCOL=1,MAX_MESSAGE=8*1024*1024;
+const PROTOCOL=2,MAX_MESSAGE=8*1024*1024;
 export function encodeInvitation(description){return 'BC1.'+btoa(unescape(encodeURIComponent(JSON.stringify({v:PROTOCOL,type:description.type,sdp:description.sdp}))));}
 export function decodeInvitation(text,type){
  let input=String(text).trim();try{const url=new URL(input);input=new URLSearchParams(url.hash.slice(1)).get('friend')||input;}catch{}
  const match=input.match(/BC1\.([A-Za-z0-9+/=]+)/);if(!match||match[1].length>40000)throw Error('接続コードを確認してください。');
  let value;try{value=JSON.parse(decodeURIComponent(escape(atob(match[1]))));}catch{throw Error('接続コードを読み取れません。');}
- if(value.v!==PROTOCOL||value.type!==type||typeof value.sdp!=='string'||value.sdp.length>28000||!value.sdp.startsWith('v=0'))throw Error(type==='offer'?'招待リンク／招待コードを貼ってください。':'友達から届いた返信コードを貼ってください。');
+ if(value.v!==PROTOCOL)throw Error('ゲームのバージョンが違います。2人とも最新ページを開いて招待し直してください。');
+ if(value.type!==type||typeof value.sdp!=='string'||value.sdp.length>28000||!value.sdp.startsWith('v=0'))throw Error(type==='offer'?'招待リンク／招待コードを貼ってください。':'友達から届いた返信コードを貼ってください。');
  return{type:value.type,sdp:value.sdp};
 }
 export class FriendConnection{

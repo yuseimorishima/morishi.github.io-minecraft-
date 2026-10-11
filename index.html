@@ -53171,11 +53171,11 @@ class VoxelWorld {
   const localEdits=this._editsByChunk.get(cx+','+cz);if(localEdits)for(const [key,type]of localEdits){const p=key.split(',').map(Number);data[wvIndex(p[0]-x0,p[1],p[2]-z0)]=type;}
   this._generated++;return chunk;
  }
- _ores(chunk,write,biomes) {const x0=chunk.cx*16,z0=chunk.cz*16;for(let gz=Math.floor((z0-3)/6);gz<=Math.floor((z0+18)/6);gz++)for(let gx=Math.floor((x0-3)/6);gx<=Math.floor((x0+18)/6);gx++)for(let gy=-10;gy<=15;gy++){if(hash3(gx,gy,gz,this.seed+420)>.76)continue;const x=gx*6+Math.floor(hash3(gx,gy,gz,this.seed+421)*6),y=gy*6+Math.floor(hash3(gx,gy,gz,this.seed+422)*6),z=gz*6+Math.floor(hash3(gx,gy,gz,this.seed+423)*6),roll=hash3(gx,gy,gz,this.seed+424),b=this.biome(x,z);let type;
-   if(y<-36)type=roll<.12?BLOCKS.DIAMOND:roll<.28?BLOCKS.REDSTONE:roll<.42?BLOCKS.LAPIS:roll<.60?BLOCKS.GOLD:roll<.75?BLOCKS.IRON:roll<.88?BLOCKS.COAL:BLOCKS.EMERALD;
-   else if(y<-8)type=roll<.07?BLOCKS.EMERALD:roll<.24?BLOCKS.GOLD:roll<.36?BLOCKS.LAPIS:roll<.45?BLOCKS.REDSTONE:roll<.72?BLOCKS.IRON:roll<.89?BLOCKS.COAL:BLOCKS.COPPER;
-   else type=roll<.36?BLOCKS.COAL:roll<.68?BLOCKS.IRON:roll<.93?BLOCKS.COPPER:b.id==='badlands'?BLOCKS.GOLD:b.id==='snow'?BLOCKS.EMERALD:BLOCKS.COAL;
-   const rx=1.5+hash3(gx,gy,gz,this.seed+425)*1.4,ry=1+hash3(gx,gy,gz,this.seed+426)*1.4,rz=1.5+hash3(gx,gy,gz,this.seed+427)*1.4;for(let dz=-3;dz<=3;dz++)for(let dx=-3;dx<=3;dx++)for(let dy=-2;dy<=2;dy++){const wx=x+dx,wy=y+dy,wz=z+dz;if(wx<x0||wx>=x0+16||wz<z0||wz>=z0+16||wy<=WORLD_MIN_Y||wy>=WORLD_MAX_Y||(dx/rx)**2+(dy/ry)**2+(dz/rz)**2>1)continue;const at=wvIndex(wx-x0,wy,wz-z0);if(chunk.data[at]===BLOCKS.STONE||chunk.data[at]===BLOCKS.DEEP)write(wx,wy,wz,type);}
+ _ores(chunk,write,biomes) {const x0=chunk.cx*16,z0=chunk.cz*16;for(let gz=Math.floor((z0-3)/6);gz<=Math.floor((z0+18)/6);gz++)for(let gx=Math.floor((x0-3)/6);gx<=Math.floor((x0+18)/6);gx++)for(let gy=-10;gy<=15;gy++){if(hash3(gx,gy,gz,this.seed+420)>.28)continue;const x=gx*6+Math.floor(hash3(gx,gy,gz,this.seed+421)*6),y=gy*6+Math.floor(hash3(gx,gy,gz,this.seed+422)*6),z=gz*6+Math.floor(hash3(gx,gy,gz,this.seed+423)*6),roll=hash3(gx,gy,gz,this.seed+424),b=this.biome(x,z);let type;
+   if(y<-36)type=roll<.055?BLOCKS.DIAMOND:roll<.32?BLOCKS.REDSTONE:roll<.48?BLOCKS.LAPIS:roll<.64?BLOCKS.GOLD:BLOCKS.IRON;
+   else if(y<-8)type=roll<.15?BLOCKS.GOLD:roll<.27?BLOCKS.LAPIS:roll<.39?BLOCKS.REDSTONE:roll<.75?BLOCKS.IRON:BLOCKS.COPPER;
+   else type=roll<.36?BLOCKS.COAL:roll<.68?BLOCKS.IRON:roll<.93?BLOCKS.COPPER:b.id==='badlands'?BLOCKS.GOLD:['snow','taiga'].includes(b.id)&&y>8?BLOCKS.EMERALD:BLOCKS.COAL;
+   const rare=type===BLOCKS.DIAMOND||type===BLOCKS.EMERALD,scale=rare?.65:1.15,rx=scale+hash3(gx,gy,gz,this.seed+425)*.7,ry=.75+hash3(gx,gy,gz,this.seed+426)*.65,rz=scale+hash3(gx,gy,gz,this.seed+427)*.7;for(let dz=-3;dz<=3;dz++)for(let dx=-3;dx<=3;dx++)for(let dy=-2;dy<=2;dy++){const wx=x+dx,wy=y+dy,wz=z+dz;if(wx<x0||wx>=x0+16||wz<z0||wz>=z0+16||wy<=WORLD_MIN_Y||wy>=WORLD_MAX_Y||(dx/rx)**2+(dy/ry)**2+(dz/rz)**2>1)continue;const at=wvIndex(wx-x0,wy,wz-z0);if(chunk.data[at]===BLOCKS.STONE||chunk.data[at]===BLOCKS.DEEP){write(wx,wy,wz,type);}}
   }
  }
  _trees(chunk,write) {const x0=chunk.cx*16,z0=chunk.cz*16;for(let gz=Math.floor((z0-6)/8);gz<=Math.floor((z0+21)/8);gz++)for(let gx=Math.floor((x0-6)/8);gx<=Math.floor((x0+21)/8);gx++){const x=gx*8+1+Math.floor(hash3(gx,450,gz,this.seed)*6),z=gz*8+1+Math.floor(hash3(gx,451,gz,this.seed)*6),h=this._height(x,z),b=this.biome(x,z),roll=hash3(gx,452,gz,this.seed);if(this._inLegacy(x,z)||h<=WV_SEA||h>84)continue;if(b.id==='desert'&&roll<.25){for(let y=h;y<h+2+Math.floor(roll*8);y++)write(x,y,z,BLOCKS.CACTUS);continue;}if(b.id==='badlands'||b.id==='ocean'||b.id==='snow'&&h>60)continue;const density=b.id==='jungle'?.87:b.id==='forest'?.76:b.id==='taiga'?.62:b.id==='snow'?.26:.16;if(roll>density)continue;const pine=b.id==='snow'||b.id==='taiga',jungle=b.id==='jungle',trunk=pine?BLOCKS.SNOW_LOG:jungle?BLOCKS.JUNGLE_LOG:BLOCKS.WOOD,leaves=pine?BLOCKS.PINE_LEAVES:jungle?BLOCKS.JUNGLE_LEAVES:BLOCKS.LEAVES,th=pine?7+Math.floor(roll*5):jungle?8+Math.floor(roll*6):4+Math.floor(roll*4);for(let y=h;y<h+th;y++)write(x,y,z,trunk);for(let dy=-3;dy<=1;dy++){const r=pine?dy<=-2?2:1:jungle?3:2;for(let dz=-r;dz<=r;dz++)for(let dx=-r;dx<=r;dx++)if(Math.abs(dx)+Math.abs(dz)<=r*1.6&&!(dx===0&&dz===0&&dy<0))write(x+dx,h+th+dy,z+dz,leaves);}if(jungle&&roll<.5)for(let k=0;k<3;k++)write(x+2,h+k,z+2,BLOCKS.MUSHROOM);}
@@ -53191,7 +53191,7 @@ class VoxelWorld {
   else if(s.type==='shipwreck'){const sy=Math.max(y,WV_SEA-2);for(let k=0;k<4;k++){const r=k<2?2:3;for(let dx=-7;dx<=7;dx++)for(let dz=-r;dz<=r;dz++)if(Math.abs(dx)<7-Math.max(0,Math.abs(dz)-1)&&(k===0||Math.abs(dz)===r||Math.abs(dx)>5))write(x+dx,sy+k,z+dz,BLOCKS.PLANK);}box(x-5,sy+1,z-1,4,2,3,BLOCKS.AIR);box(x,sy+1,z,1,9,1,BLOCKS.WOOD);box(x+1,sy+6,z,4,3,1,BLOCKS.WOOL);write(x-4,sy+1,z,BLOCKS.CHEST);write(x+4,sy+1,z,BLOCKS.CHEST);}
   else if(s.type==='mineshaft'){box(x-13,y,z-2,27,4,5,BLOCKS.AIR,true);box(x-4,y,z-6,9,4,13,BLOCKS.AIR,true);box(x-13,y-1,z-2,27,1,5,BLOCKS.PLANK);box(x-4,y-1,z-6,9,1,13,BLOCKS.PLANK);for(let k=-12;k<=12;k+=6){box(x+k,y,z-2,1,3,1,BLOCKS.WOOD);box(x+k,y,z+2,1,3,1,BLOCKS.WOOD);box(x+k,y+3,z-2,1,1,5,BLOCKS.PLANK);write(x+k,y+2,z+1,BLOCKS.TORCH);}write(x-11,y,z+1,BLOCKS.CHEST);write(x+3,y,z+5,BLOCKS.CHEST);write(x+2,y,z+5,BLOCKS.TABLE);write(x+1,y,z+5,BLOCKS.FURNACE);}
  }
- lootAt(x,y,z) {x=Math.floor(x);y=Math.floor(y);z=Math.floor(z);if(this.baseVoxel(x,y,z)!==BLOCKS.CHEST)return [];const r=hash3(x,y,z,this.seed+600);return [{id:'iron',count:3+Math.floor(r*6)},{id:'coal',count:4+Math.floor(hash3(x,y,z,this.seed+601)*9)},{id:'torch',count:6+Math.floor(hash3(x,y,z,this.seed+602)*10)},{id:r<.22?'diamond':r<.48?'emerald':r<.7?'gold':'rail',count:r<.7?1+Math.floor(r*5):12},{id:hash3(x,y,z,this.seed+603)<.5?'apple':'plank',count:3+Math.floor(hash3(x,y,z,this.seed+604)*8)}];}
+ lootAt(x,y,z) {x=Math.floor(x);y=Math.floor(y);z=Math.floor(z);if(this.baseVoxel(x,y,z)!==BLOCKS.CHEST)return [];const r=n=>hash3(x,y,z,this.seed+600+n),loot=[{id:r(0)<.5?'apple':'plank',count:1+Math.floor(r(1)*4)}];if(r(2)<.65)loot.push({id:'coal',count:1+Math.floor(r(3)*3)});if(r(4)<.38)loot.push({id:'iron',count:1+Math.floor(r(5)*2)});if(r(6)<.45)loot.push({id:'torch',count:2+Math.floor(r(7)*3)});const treasure=this.structuresNear(x,z,32).some(s=>['temple','jungle_ruin','mineshaft'].includes(s.type)&&x>=s.bounds.minX&&x<=s.bounds.maxX&&z>=s.bounds.minZ&&z<=s.bounds.maxZ);if(treasure&&r(8)<.045)loot.push({id:'diamond',count:1});else if(treasure&&r(8)<.11)loot.push({id:'gold',count:1+Math.floor(r(9)*2)});return loot; }
  chunk(cx,cz) {cx=Math.floor(cx);cz=Math.floor(cz);const key=cx+','+cz;let c=this._chunks.get(key);if(c){this._chunks.delete(key);this._chunks.set(key,c);c.used=++this._clock;return c;}c=this._generate(cx,cz);this._chunks.set(key,c);while(this._chunks.size>this.maxCachedChunks)this._chunks.delete(this._chunks.keys().next().value);return c;}
  voxel(x,y,z) {x=Math.floor(x);y=Math.floor(y);z=Math.floor(z);if(y<WORLD_MIN_Y||y>=WORLD_MAX_Y||!Number.isFinite(x)||!Number.isFinite(z))return BLOCKS.AIR;const cx=Math.floor(x/16),cz=Math.floor(z/16),c=this.chunk(cx,cz);return c.data[wvIndex(x-cx*16,y,z-cz*16)];}
  baseVoxel(x,y,z) {x=Math.floor(x);y=Math.floor(y);z=Math.floor(z);if(y<WORLD_MIN_Y||y>=WORLD_MAX_Y||!Number.isFinite(x)||!Number.isFinite(z))return BLOCKS.AIR;const cx=Math.floor(x/16),cz=Math.floor(z/16),c=this.chunk(cx,cz);return c.baseData[wvIndex(x-cx*16,y,z-cz*16)];}
@@ -53252,9 +53252,9 @@ function inCave(wx,wz,feet){const c=cellAt(wx,wz);return [Math.floor(feet),Math.
 // Mineral veins use correlated noise instead of isolated random dots.
 for(let z=1;z<N-1;z++)for(let x=1;x<N-1;x++)for(let y=MIN_Y+1;y<heights[id(x,z)]-3;y++)if(voxel(x,y,z)===T.STONE){
  let t=y<-16?T.DEEP:T.STONE;
- if(noise(x*.53,y*.51,z*.53)>.74)t=T.COAL;
- if(y<12&&noise((x+73)*.6,y*.6,(z+29)*.6)>.75)t=T.IRON;
- if(y<-23&&noise((x+141)*.6,y*.6,(z+137)*.6)>.8)t=T.GOLD;
+ if(noise(x*.53,y*.51,z*.53)>.91)t=T.COAL;
+ if(y<12&&noise((x+73)*.6,y*.6,(z+29)*.6)>.91)t=T.IRON;
+ if(y<-23&&noise((x+141)*.6,y*.6,(z+137)*.6)>.94)t=T.GOLD;
  put(x,y,z,t);
 }
 const structures = [];
@@ -53310,17 +53310,11 @@ put(15,cabinY,23,T.TABLE);put(18,cabinY,23,T.FURNACE);put(18,cabinY,20,T.CHEST);
 
 for(const [x,z]of[[35,44],[28,35],[48,52]]){const c=caveCells.get(id(x,z))?.[0];if(c)for(const[dx,dz]of[[0,0],[1,0],[0,1]]){const y=c.floor-1;if(voxel(x+dx,y,z+dz))put(x+dx,y,z+dz,T.GLOW);}}
 for(let z=45;z<=48;z++)for(let x=17;x<=20;x++){const c=caveCells.get(id(x,z))?.[0];if(c&&voxel(x,c.floor,z)===T.AIR)put(x,c.floor,z,T.WATER);}
-// Enrich familiar caves with new resources; old stone floors and structures stay.
+// Sparse mineral veins reward exploring deeper layers; structures are retained.
 for(let i=0;i<plane;i++)world[i]=T.DEEP;
-for(const[type,count,low,high,radius]of [[T.COAL,50,-44,8,2.2],[T.IRON,42,-42,4,2],[T.COPPER,30,-20,12,2.1],[T.GOLD,28,-45,-22,1.9],[T.DIAMOND,26,-46,-27,1.6],[T.EMERALD,24,-42,-16,1.5],[T.REDSTONE,26,-46,-23,1.8],[T.LAPIS,24,-42,-9,1.8]])for(let k=0;k<count;k++){
+for(const[type,count,low,high,radius]of [[T.COAL,28,-12,12,1.7],[T.IRON,24,-42,4,1.6],[T.COPPER,18,-20,12,1.6],[T.GOLD,10,-45,-22,1.3],[T.DIAMOND,7,-46,-36,1.1],[T.EMERALD,3,12,36,1],[T.REDSTONE,14,-46,-23,1.4],[T.LAPIS,10,-42,-9,1.3]])for(let k=0;k<count;k++){
  const cx=3+Math.floor(hash(type,k,17)*58),cz=3+Math.floor(hash(k,type,29)*58),cy=Math.floor(low+hash(type,k,41)*(high-low));
  for(let z=cz-3;z<=cz+3;z++)for(let x=cx-3;x<=cx+3;x++)for(let y=cy-3;y<=cy+3;y++)if(((x-cx)/radius)**2+((y-cy)/(radius*.8))**2+((z-cz)/radius)**2<1&&[T.STONE,T.DEEP].includes(voxel(x,y,z)))put(x,y,z,type);
-}
-// Mineral seams visible on cave walls make exploration rewarding immediately.
-for(let z=1;z<63;z++)for(let x=1;x<63;x++)for(let y=-46;y<Math.min(6,heights[id(x,z)]-4);y++)if([T.STONE,T.DEEP].includes(voxel(x,y,z))&&[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([dx,dy,dz])=>voxel(x+dx,y+dy,z+dz)===T.AIR)){
- const roll=hash(Math.floor(x/2),Math.floor(y/2),Math.floor(z/2));let type=null;
- if(y<-26&&roll<.025)type=T.DIAMOND;else if(roll<.04)type=T.EMERALD;else if(y<-18&&roll<.075)type=T.REDSTONE;else if(roll<.10)type=T.LAPIS;else if(y<-18&&roll<.14)type=T.GOLD;else if(roll<.2)type=T.IRON;else if(roll<.27)type=T.COAL;else if(roll<.31)type=T.COPPER;
- if(type)put(x,y,z,type);
 }
 return {data:world,minY:MIN_Y,maxY:MAX_Y,heights,caveMask,structures};
 }
@@ -53939,13 +53933,14 @@ const {nightAt,daylightAt,NightCreatures,createCreatureVisuals} = MonsterModule;
 const FriendsModule = (() => {
 
 // Two-player WebRTC data connection. Signaling is exchanged by the players.
-const PROTOCOL=1,MAX_MESSAGE=8*1024*1024;
+const PROTOCOL=2,MAX_MESSAGE=8*1024*1024;
 function encodeInvitation(description){return 'BC1.'+btoa(unescape(encodeURIComponent(JSON.stringify({v:PROTOCOL,type:description.type,sdp:description.sdp}))));}
 function decodeInvitation(text,type){
  let input=String(text).trim();try{const url=new URL(input);input=new URLSearchParams(url.hash.slice(1)).get('friend')||input;}catch{}
  const match=input.match(/BC1\.([A-Za-z0-9+/=]+)/);if(!match||match[1].length>40000)throw Error('接続コードを確認してください。');
  let value;try{value=JSON.parse(decodeURIComponent(escape(atob(match[1]))));}catch{throw Error('接続コードを読み取れません。');}
- if(value.v!==PROTOCOL||value.type!==type||typeof value.sdp!=='string'||value.sdp.length>28000||!value.sdp.startsWith('v=0'))throw Error(type==='offer'?'招待リンク／招待コードを貼ってください。':'友達から届いた返信コードを貼ってください。');
+ if(value.v!==PROTOCOL)throw Error('ゲームのバージョンが違います。2人とも最新ページを開いて招待し直してください。');
+ if(value.type!==type||typeof value.sdp!=='string'||value.sdp.length>28000||!value.sdp.startsWith('v=0'))throw Error(type==='offer'?'招待リンク／招待コードを貼ってください。':'友達から届いた返信コードを貼ってください。');
  return{type:value.type,sdp:value.sdp};
 }
 class FriendConnection{

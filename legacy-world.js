@@ -43,9 +43,9 @@ function inCave(wx,wz,feet){const c=cellAt(wx,wz);return [Math.floor(feet),Math.
 // Mineral veins use correlated noise instead of isolated random dots.
 for(let z=1;z<N-1;z++)for(let x=1;x<N-1;x++)for(let y=MIN_Y+1;y<heights[id(x,z)]-3;y++)if(voxel(x,y,z)===T.STONE){
  let t=y<-16?T.DEEP:T.STONE;
- if(noise(x*.53,y*.51,z*.53)>.74)t=T.COAL;
- if(y<12&&noise((x+73)*.6,y*.6,(z+29)*.6)>.75)t=T.IRON;
- if(y<-23&&noise((x+141)*.6,y*.6,(z+137)*.6)>.8)t=T.GOLD;
+ if(noise(x*.53,y*.51,z*.53)>.91)t=T.COAL;
+ if(y<12&&noise((x+73)*.6,y*.6,(z+29)*.6)>.91)t=T.IRON;
+ if(y<-23&&noise((x+141)*.6,y*.6,(z+137)*.6)>.94)t=T.GOLD;
  put(x,y,z,t);
 }
 const structures = [];
@@ -101,17 +101,11 @@ put(15,cabinY,23,T.TABLE);put(18,cabinY,23,T.FURNACE);put(18,cabinY,20,T.CHEST);
 
 for(const [x,z]of[[35,44],[28,35],[48,52]]){const c=caveCells.get(id(x,z))?.[0];if(c)for(const[dx,dz]of[[0,0],[1,0],[0,1]]){const y=c.floor-1;if(voxel(x+dx,y,z+dz))put(x+dx,y,z+dz,T.GLOW);}}
 for(let z=45;z<=48;z++)for(let x=17;x<=20;x++){const c=caveCells.get(id(x,z))?.[0];if(c&&voxel(x,c.floor,z)===T.AIR)put(x,c.floor,z,T.WATER);}
-// Enrich familiar caves with new resources; old stone floors and structures stay.
+// Sparse mineral veins reward exploring deeper layers; structures are retained.
 for(let i=0;i<plane;i++)world[i]=T.DEEP;
-for(const[type,count,low,high,radius]of [[T.COAL,50,-44,8,2.2],[T.IRON,42,-42,4,2],[T.COPPER,30,-20,12,2.1],[T.GOLD,28,-45,-22,1.9],[T.DIAMOND,26,-46,-27,1.6],[T.EMERALD,24,-42,-16,1.5],[T.REDSTONE,26,-46,-23,1.8],[T.LAPIS,24,-42,-9,1.8]])for(let k=0;k<count;k++){
+for(const[type,count,low,high,radius]of [[T.COAL,28,-12,12,1.7],[T.IRON,24,-42,4,1.6],[T.COPPER,18,-20,12,1.6],[T.GOLD,10,-45,-22,1.3],[T.DIAMOND,7,-46,-36,1.1],[T.EMERALD,3,12,36,1],[T.REDSTONE,14,-46,-23,1.4],[T.LAPIS,10,-42,-9,1.3]])for(let k=0;k<count;k++){
  const cx=3+Math.floor(hash(type,k,17)*58),cz=3+Math.floor(hash(k,type,29)*58),cy=Math.floor(low+hash(type,k,41)*(high-low));
  for(let z=cz-3;z<=cz+3;z++)for(let x=cx-3;x<=cx+3;x++)for(let y=cy-3;y<=cy+3;y++)if(((x-cx)/radius)**2+((y-cy)/(radius*.8))**2+((z-cz)/radius)**2<1&&[T.STONE,T.DEEP].includes(voxel(x,y,z)))put(x,y,z,type);
-}
-// Mineral seams visible on cave walls make exploration rewarding immediately.
-for(let z=1;z<63;z++)for(let x=1;x<63;x++)for(let y=-46;y<Math.min(6,heights[id(x,z)]-4);y++)if([T.STONE,T.DEEP].includes(voxel(x,y,z))&&[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([dx,dy,dz])=>voxel(x+dx,y+dy,z+dz)===T.AIR)){
- const roll=hash(Math.floor(x/2),Math.floor(y/2),Math.floor(z/2));let type=null;
- if(y<-26&&roll<.025)type=T.DIAMOND;else if(roll<.04)type=T.EMERALD;else if(y<-18&&roll<.075)type=T.REDSTONE;else if(roll<.10)type=T.LAPIS;else if(y<-18&&roll<.14)type=T.GOLD;else if(roll<.2)type=T.IRON;else if(roll<.27)type=T.COAL;else if(roll<.31)type=T.COPPER;
- if(type)put(x,y,z,type);
 }
 return {data:world,minY:MIN_Y,maxY:MAX_Y,heights,caveMask,structures};
 }

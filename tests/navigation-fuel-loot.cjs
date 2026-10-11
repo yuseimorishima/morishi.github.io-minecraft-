@@ -19,6 +19,7 @@ const OFFSET = 32;
     });
     await page.addInitScript(() => {
       HTMLElement.prototype.requestPointerLock = () => Promise.resolve();
+      Object.defineProperty(document, 'pointerLockElement', { get: () => document.querySelector('canvas') });
       Object.defineProperty(window, 'devicePixelRatio', { value: .18 });
     });
     await page.goto(process.env.GAME_URL || 'http://127.0.0.1:8000');
@@ -52,11 +53,10 @@ const OFFSET = 32;
       const s = await state(),eye=s.position;
       const dx=x-OFFSET-eye[0],dy=y-eye[1],dz=z-OFFSET-eye[2];
       const yaw=Math.atan2(-dx,-dz),pitch=Math.atan2(dy,Math.hypot(dx,dz));
-      await page.mouse.move(600,400);await page.mouse.down();
+      // Simulate locked-pointer motion without a click that would instantly mine in creative.
       await page.dispatchEvent('canvas','mousemove',{
         movementX:(s.yaw-yaw)/.0025,movementY:(s.pitch-pitch)/.0025,bubbles:true,
       });
-      await page.mouse.up();
     }
     async function station(block,title) {
       // With a placeable block selected, the diagnostic target is the adjacent
@@ -154,7 +154,7 @@ const OFFSET = 32;
     s=await state();assert(s.chests[chestKey].every(v=>v===null));
     for(const stack of loot) assert((await count(stack.id))>=stack.count,stack.id+' was transferred to the bag');
     await page.keyboard.press('Escape');await page.keyboard.press('Digit9');
-    await look(chest.x+.5,chest.y+.5,chest.z+.5);
+    // The chest is still in view. Clicking to aim in creative would mine it immediately.
     await page.waitForFunction(block=>{const t=blockCoaster.getState().target;return t&&t.x===block.x&&t.y===block.y&&t.z===block.z;},chest,{timeout:15000});
     await page.keyboard.press('KeyE');
     await page.waitForFunction(block=>blockCoaster.voxel(block.x,block.y,block.z)===0,chest,{timeout:15000});
