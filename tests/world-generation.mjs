@@ -31,9 +31,9 @@ check('The original region is retained and its four edges blend into new terrain
  assert.ok(w.voxel(33,-60,35)!==B.BEDROCK);
 });
 
-check('All eight biomes occur within a short exploration distance', () => {
+check('All nine biomes occur within a short exploration distance', () => {
  const w=new VoxelWorld(),found=new Set();for(let z=-400;z<=400;z+=24)for(let x=-400;x<=400;x+=24)found.add(w.biome(x,z).id);
- assert.deepEqual([...found].sort(),['badlands','desert','forest','jungle','ocean','plains','snow','taiga']);
+ assert.deepEqual([...found].sort(),['badlands','cherry','desert','forest','jungle','ocean','plains','snow','taiga']);
  let tallest=-Infinity,lowest=Infinity;for(let z=-400;z<=400;z+=32)for(let x=-400;x<=400;x+=32){const h=w._height(x,z);tallest=Math.max(tallest,h);lowest=Math.min(lowest,h);}
  assert.ok(tallest>50,`mountain height ${tallest}`);assert.ok(lowest<0,`ocean floor ${lowest}`);
 });
@@ -42,6 +42,7 @@ check('Branching caves reach deep layers with exposed ores and rare mountain eme
  const w=new VoxelWorld(),oreTypes=[B.COAL,B.IRON,B.GOLD,B.DIAMOND,B.EMERALD,B.REDSTONE,B.LAPIS,B.COPPER],counts=new Map(oreTypes.map(t=>[t,0])),exposed=new Map(oreTypes.map(t=>[t,0]));let deepest=0,caveCount=0;
  for(let cz=-6;cz<=6;cz++)for(let cx=-6;cx<=6;cx++){const c=w.chunk(cx,cz);for(let y=-61;y<40;y++)for(let z=1;z<15;z++)for(let x=1;x<15;x++){const index=at(x,y,z),t=c.data[index];if(c.cave[index]){deepest=Math.min(deepest,y);caveCount++;}if(counts.has(t)){counts.set(t,counts.get(t)+1);assert.ok(y<c.heights[z*16+x]-2);if([index-1,index+1,index-16,index+16,index-256,index+256].some(i=>c.data[i]===B.AIR))exposed.set(t,exposed.get(t)+1);}}}
  for(const type of oreTypes){assert.ok(counts.get(type)>0,`${type}: ${counts.get(type)} ore blocks`);if(type!==B.EMERALD)assert.ok(exposed.get(type)>0,`${type} ore visible from caves`);}
+ const visibleTotal=[...exposed.values()].reduce((a,b)=>a+b,0);assert.ok(visibleTotal>150&&visibleTotal<1500,`visible ores ${visibleTotal}`);
  assert.ok(deepest<=-57,`deepest cave ${deepest}`);assert.ok(caveCount>8000);
 });
 
@@ -87,6 +88,30 @@ check('Natural treasure chests give small supplies with occasional precious rewa
   }
  }
  assert.ok(chests>100);assert.ok(precious>0&&precious/chests<.18,`precious loot ${precious}/${chests}`);
+});
+
+check('Cherry groves grow harvestable pink canopies and natural wood',()=>{
+ const w=new VoxelWorld();let logs=0,leaves=0;
+ for(let cz=-20;cz<=-17;cz++)for(let cx=-18;cx<=-15;cx++){const c=w.chunk(cx,cz);for(const t of c.data){if(t===B.CHERRY_LOG)logs++;if(t===B.CHERRY_LEAVES)leaves++;}}
+ assert.ok(logs>20&&leaves>logs*3,`${logs} cherry logs / ${leaves} blossoms`);
+});
+check('Deep cities and connected trial rooms have walkable halls, loot and stable seams',()=>{
+ const w=new VoxelWorld(),all=w.structuresNear(32,32,250);
+ for(const type of ['ancient_city','trial_chamber']){
+  const s=all.find(s=>s.type===type);assert.ok(s,type);const {x,y,z}=s;
+  assert.ok(y<-20);assert.equal(w.voxel(x,y+3,z),B.AIR);assert.equal(w.isCave(x,y+3,z),true);
+  if(type==='ancient_city'){
+   assert.equal(w.voxel(x,y-1,z+10),B.TUFF);assert.equal(w.voxel(x-6,y+3,z),B.DEEP);
+   assert.equal(w.voxel(x+18,y,z+18),B.CHEST);assert.ok(w.lootAt(x+18,y,z+18).length);
+   for(let k=0;k<=18;k++)assert.equal(w.voxel(x,y+Math.floor(k/3)+1,z+23+k),B.AIR);
+  }else{
+   for(let dx=-24;dx<=24;dx++)assert.equal(w.voxel(x+dx,y+2,z),B.AIR,`room corridor ${dx}`);
+   assert.equal(w.voxel(x-16,y,z+6),B.CHEST);assert.ok(w.lootAt(x-16,y,z+6).length);
+   assert.equal(w.voxel(x+4,y+3,z+8),B.AGED_COPPER);
+  }
+  const keys=[];for(let cz=Math.floor(s.bounds.minZ/16);cz<=Math.floor(s.bounds.maxZ/16);cz++)for(let cx=Math.floor(s.bounds.minX/16);cx<=Math.floor(s.bounds.maxX/16);cx++)keys.push([cx,cz]);
+  const reverse=new VoxelWorld();for(const [cx,cz]of keys.reverse())reverse.chunk(cx,cz);for(const[cx,cz]of keys)assert.deepEqual(w.chunk(cx,cz).data,reverse.chunk(cx,cz).data);
+ }
 });
 
 check('Hundreds of explored regions retain a fixed resident cache', () => {

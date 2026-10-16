@@ -1,4 +1,4 @@
-// These two sheets were generated with ChatGPT image generation for this game.
+// These sheets were generated with ChatGPT image generation for this game.
 export const generatedArtSheets = [
   {
     src: 'assets/equipment-atlas.png', cols: 8, rows: 8,
@@ -6,8 +6,9 @@ export const generatedArtSheets = [
   },
   {
     src: 'assets/materials-atlas.png', cols: 8, rows: 5,
-    mapping: 'dirt stone log leaves plank sand glass snow moss table furnace chest clay brickBlock bookshelf obsidian basalt pineLog pineLeaves jungleLog jungleLeaves redSand ice wool cactus mushroom smoothStone charcoal ironBlock goldBlock copperBlock diamondBlock emeraldBlock rail bakedApple bowl mushroomStew paper book brick'.split(' '),
+    mapping: 'dirt stone log leaves plank sand glass snow moss table furnace chest clay brickBlock bookshelf obsidian basalt pineLog pineLeaves _ jungleLeaves redSand ice wool cactus mushroom smoothStone charcoal ironBlock goldBlock copperBlock diamondBlock emeraldBlock rail bakedApple bowl mushroomStew paper book brick'.split(' ').map(id=>id==='_'?null:id),
   },
+  {src:'assets/exploration-atlas.png',cols:4,rows:2,mapping:['jungleLog',null,'cherryLog',null,'cherryLeaves','sculk','tuff','agedCopper']},
 ];
 export async function loadGeneratedArt(register,onSheet){
  await Promise.all(generatedArtSheets.map(sheet=>new Promise((resolve,reject)=>{

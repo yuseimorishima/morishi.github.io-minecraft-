@@ -6,6 +6,8 @@ const define = (id, name, color, block = null, extra = {}) => {
   itemDefs[id] = { name, color, block, max: 64, icon: block !== null ? 'block' : 'chunk', ...extra };
 };
 const blocks = [
+  ['cherryLog', '桜の原木', '#7b4d5b', B.CHERRY_LOG, 'log'], ['cherryLeaves', '桜の花の葉', '#efa9c6', B.CHERRY_LEAVES, 'leaves'],
+  ['sculk', '深層の青苔', '#123a43', B.SCULK], ['tuff', '凝灰岩', '#71817c', B.TUFF], ['agedCopper', '酸化した銅の装飾', '#4a9f91', B.AGED_COPPER],
   ['dirt', '土', '#896342', B.DIRT], ['stone', '丸石', '#858c8c', B.COBBLE],
   ['log', 'オークの原木', '#956638', B.WOOD, 'log'], ['leaves', 'オークの葉', '#4d8a38', B.LEAVES, 'leaves'],
   ['plank', '木材', '#c2995c', B.PLANK, 'plank'], ['sand', '砂', '#e5d39a', B.SAND],
@@ -85,7 +87,7 @@ export const recipes = [];
 function recipe(id, n, shape, keys, size = Math.max(shape.length, ...shape.map(r => r.length)) > 2 ? 3 : 2) {
   recipes.push({ id, n, shape, keys, size });
 }
-for (const log of ['log', 'pineLog', 'jungleLog']) recipe('plank', 4, ['L'], { L: log });
+for (const log of ['log', 'pineLog', 'jungleLog', 'cherryLog']) recipe('plank', 4, ['L'], { L: log });
 recipe('stick', 4, ['P', 'P'], { P: 'plank' });
 recipe('table', 1, ['PP', 'PP'], { P: 'plank' });
 for (const fuel of ['coal', 'charcoal']) recipe('torch', 4, ['C', 'S'], { C: fuel, S: 'stick' });

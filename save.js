@@ -1,8 +1,8 @@
 // Save files are validated completely before the caller changes the live world.
 const SV_COORD_LIMIT=10000000,SV_OLD_MIN=-48,SV_OLD_MAX=64,SV_OLD_SIZE=64,SV_OLD_PLANE=4096,SV_OLD_VOLUME=458752;
-const SV_BIOMES=new Set(['plains','forest','desert','taiga','snow','jungle','badlands','ocean']);
-const SV_SMELTING={iron:['ironOre'],gold:['goldOre'],copper:['copperOre'],glass:['sand'],brick:['clay'],charcoal:['log','pineLog','jungleLog'],smoothStone:['stone'],bakedApple:['apple']};
-const SV_FUELS=new Set(['coal','charcoal','log','pineLog','jungleLog','plank']);
+const SV_BIOMES=new Set(['plains','forest','desert','taiga','snow','jungle','badlands','ocean','cherry']);
+const SV_SMELTING={iron:['ironOre'],gold:['goldOre'],copper:['copperOre'],glass:['sand'],brick:['clay'],charcoal:['log','pineLog','jungleLog','cherryLog'],smoothStone:['stone'],bakedApple:['apple']};
+const SV_FUELS=new Set(['coal','charcoal','log','pineLog','jungleLog','cherryLog','plank']);
 const svFail=reason=>{throw new Error(`Invalid save: ${reason}`);};
 const svOwn=(value,key)=>Object.hasOwn(value,key);
 function svRecord(value,label) {if(!value||typeof value!=='object'||Array.isArray(value))svFail(label);const p=Object.getPrototypeOf(value);if(p!==Object.prototype&&p!==null)svFail(`${label} prototype`);return value;}

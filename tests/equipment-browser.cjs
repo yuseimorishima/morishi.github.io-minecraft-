@@ -221,16 +221,16 @@ const OFFSET = 32;
 
     await page.waitForFunction(() => {
       const s = blockCoaster.artStats();
-      return s.ready === 2 && s.generatedIcons === 104;
+      return s.ready === 3 && s.generatedIcons === 109;
     }, null, { timeout: 120000 });
     await fixture(s => { cabinFixture(s); s.gameMode = 'creative'; });
     await page.keyboard.press('KeyI');
     const catalogCount = await page.locator('#creativeItems .slot').count();
-    assert.equal(catalogCount, 104, 'All item categories have generated artwork in the creative catalog');
-    assert.equal(await page.locator('#creativeItems .item-icon').count(), 104);
+    assert.equal(catalogCount, 109, 'All item categories have generated artwork in the creative catalog');
+    assert.equal(await page.locator('#creativeItems .item-icon').count(), 109);
     await page.screenshot({ path: '/tmp/equipment-generated-art.png' });
     assert.equal(errors.length, 0, errors.join('\n'));
-    console.log('PASS two generated sprite atlases, 104 creative item icons, screenshots, and no browser errors');
+    console.log('PASS three generated sprite atlases, 109 creative item icons, screenshots, and no browser errors');
   } finally {
     await browser.close();
   }

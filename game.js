@@ -31,6 +31,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.setSize(innerWid
 const ambient = new THREE.HemisphereLight(0xdceeff, 0x657d39, 2.2); scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xffefc2, 2.5); sun.position.set(25, 60, 10); scene.add(sun);
 const mat = color => new THREE.MeshLambertMaterial({ color, vertexColors: true });
+let explorationAtlasImage=null;const explorationTiles={oakBark:0,pineBark:0,jungleBark:0,jungleEnd:1,cherryBark:2,cherryEnd:3,cherryLeaves:4,sculk:5,tuff:6,agedCopper:7};
 let terrainAtlasImage=null;const terrainPainters=[];
 const terrainTiles={grass:0,dirt:1,stone:2,grassSide:3,cobble:4,plank:5,wood:6,end:7,leaves:8,sand:9,brick:12,snow:13,bookcase:14,wool:15};
 // Original pixel art: each block has a readable grain, seam or mineral pattern.
@@ -57,6 +58,8 @@ function texture(kind, base, palette) {
       if(ore){const color={coal:'#222428',iron:'#d6a180',gold:'#ffc849',diamond:'#54e4ed',emerald:'#43e784',redstone:'#ed4943',lapis:'#437fe8',copper:'#dc9760'}[kind];for(const[x,y]of[[2,3],[8,2],[11,9],[4,11],[7,7]]){g.fillStyle='#343a45';g.fillRect(x-1,y,4,3);g.fillStyle=color;g.fillRect(x,y,3,2);g.fillStyle=kind==='coal'?'#53565a':'#e3ffed';g.fillRect(x,y,1,1);}}
     }
   }
+  const extraTile=explorationTiles[kind];
+  if(explorationAtlasImage&&extraTile!==undefined){const w=explorationAtlasImage.width/4,h=explorationAtlasImage.height/2;g.imageSmoothingEnabled=false;g.drawImage(explorationAtlasImage,(extraTile%4)*w,Math.floor(extraTile/4)*h,w,h,0,0,16,16);}
   }
   paint();
   const t=new THREE.CanvasTexture(c); t.magFilter=t.minFilter=THREE.NearestFilter;t.colorSpace=THREE.SRGBColorSpace;terrainPainters.push(()=>{paint();t.needsUpdate=true;});return t;
@@ -67,7 +70,7 @@ const dirt=material(T.DIRT,'dirt','#87633f',['#a48055','#67492f','#97724e']);
 const stone=material(T.STONE,'stone','#858782',['#777a74','#999b95','#6d706b']);
 const grass=material(T.GRASS,'grass','#66933b',['#7ba846','#588333','#91b855']);
 const snow=material(T.SNOW,'snow','#ecf1ef',['#d5e4e7','#ffffff']);
-const bark=material(T.WOOD,'wood','#886137',['#a17b46','#684925']);
+const bark=material(T.WOOD,'oakBark','#886137',['#a17b46','#684925']);
 const roof=material(T.ROOF,'plank','#89533b',['#9f644b','#6c3d2a']);
 const ruin=material(T.RUIN,'cobble','#748867',['#8ca17b','#566950']);
 material(T.BEDROCK,'stone','#353735',['#171c1b','#555852']);
@@ -93,17 +96,21 @@ for(const[type,kind,base,palette]of [
  [T.DIAMOND_BLOCK,'metal','#49bfc9',['#80e4e4','#278a96']], [T.EMERALD_BLOCK,'metal','#39b570',['#6cd796','#208255']],
  [T.OBSIDIAN,'stone','#332c41',['#4f3c66','#201d2d']], [T.BRICK,'brick','#af6752',['#c88565','#815044']], [T.BOOKSHELF,'bookcase','#b28b50',['#cfaa65','#815f31']],
  [T.CACTUS,'cactus','#54803a',['#709f4b','#376929']], [T.MUSHROOM,'mushroom','#b64b3c',['#efcfbd','#723a30']], [T.BASALT,'stone','#484d50',['#606668','#333a3d']],
- [T.CLAY,'stone','#94a4b0',['#aebac0','#7b8996']], [T.SNOW_LOG,'wood','#674a2b',['#81613b','#493824']], [T.PINE_LEAVES,'leaves','#38674b',['#4c8162','#285839']],
- [T.JUNGLE_LOG,'wood','#aa7552',['#c59169','#87583f']], [T.JUNGLE_LEAVES,'leaves','#548b30',['#72a43d','#427721']], [T.RED_SAND,'sand','#bb7b45',['#d29759','#a36538']],
+ [T.CLAY,'stone','#94a4b0',['#aebac0','#7b8996']], [T.SNOW_LOG,'pineBark','#674a2b',['#81613b','#493824']], [T.PINE_LEAVES,'leaves','#38674b',['#4c8162','#285839']],
+ [T.JUNGLE_LOG,'jungleBark','#aa7552',['#c59169','#87583f']], [T.JUNGLE_LEAVES,'leaves','#548b30',['#72a43d','#427721']], [T.RED_SAND,'sand','#bb7b45',['#d29759','#a36538']],
+ [T.CHERRY_LOG,'cherryBark','#69404e',['#865866','#4c2937']], [T.CHERRY_LEAVES,'cherryLeaves','#efadc7',['#ffd8e5','#d780a6']],
+ [T.SCULK,'sculk','#122d39',['#1a6571','#091923']], [T.TUFF,'tuff','#73827b',['#8c9a91','#53625c']], [T.AGED_COPPER,'agedCopper','#499888',['#70b6a3','#286b63']],
  [T.ICE,'ice','#9bc9da',['#bce3eb','#76b3ca']], [T.LAVA,'lava','#ed7627',['#feb349','#a8381d']], [T.WOOL,'wool','#dedbd0',['#f2eee3','#c5c2b8']],
-])material(type,kind,base,palette,type===T.ICE?{transparent:true,opacity:.7}:type===T.LAVA?{emissive:0xfc7521,emissiveIntensity:.9}:{});
+])material(type,kind,base,palette,type===T.SCULK?{emissive:0x12515c,emissiveIntensity:.18}:type===T.ICE?{transparent:true,opacity:.7}:type===T.LAVA?{emissive:0xfc7521,emissiveIntensity:.9}:{});
 const grassSide=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture('grassSide','#87633f',['#a48055','#67492f']),vertexColors:true}));
-const woodEnd=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture('end','#b08e54',['#c5a76b','#99763e']),vertexColors:true}));
+const woodEnd=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture('jungleEnd','#b08e54',['#c5a76b','#99763e']),vertexColors:true}));
+const logEnds={};for(const [type,kind]of [[T.JUNGLE_LOG,'jungleEnd'],[T.CHERRY_LOG,'cherryEnd']]){logEnds[type]=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture(kind,'#d5a487',['#efd0b1','#a87865']),vertexColors:true}));}
 const metal = new THREE.MeshLambertMaterial({ color: '#dce0d8' }), wood = new THREE.MeshLambertMaterial({ color: '#805233' });
 const solidType=t=>![T.AIR,T.WATER,T.LAVA,T.TORCH,T.MUSHROOM].includes(t);
 const solid=(x,y,z)=>solidType(voxel(x,y,z));
 const deepOreMaterials={};for(const [type,kind]of [[T.COAL,'coal'],[T.IRON,'iron'],[T.GOLD,'gold'],[T.DIAMOND,'diamond'],[T.EMERALD,'emerald'],[T.REDSTONE,'redstone'],[T.LAPIS,'lapis'],[T.COPPER,'copper']]){deepOreMaterials[type]=materials.length;materials.push(new THREE.MeshLambertMaterial({map:texture(kind,'#515560',['#656973','#424651']),vertexColors:true}));}
 const terrainImage=new Image();terrainImage.onload=()=>{terrainAtlasImage=terrainImage;terrainPainters.forEach(paint=>paint());};terrainImage.src='assets/terrain-atlas.png';
+const explorationImage=new Image();explorationImage.onload=()=>{explorationAtlasImage=explorationImage;terrainPainters.forEach(paint=>paint());};explorationImage.src='assets/exploration-atlas.png';
 const gameAudio=createGameAudio(),blockParticles=createBlockParticles(THREE,scene,materials,blockMaterials);
 const cube = new THREE.BoxGeometry(1, 1, 1);
 const faces = [
@@ -126,7 +133,7 @@ function rebuildChunk(cx,cz){
  for(let z=0;z<CHUNK;z++)for(let x=0;x<CHUNK;x++)for(let y=MIN_Y;y<MAX_Y;y++){
   const type=data[(y-MIN_Y)*stride+z*CHUNK+x];if(!type)continue;const gx=cx*CHUNK+x,gz=cz*CHUNK+z;if(type===T.TORCH)torchSources.push(new THREE.Vector3(gx-OFFSET+.5,y+.8,gz-OFFSET+.5));
   for(const face of faces){const [dx,dy,dz]=face.n,n=get(x+dx,y+dy,z+dz);if(n&&(type===n||(solidType(n)&&n!==T.GLASS&&n!==T.ICE)))continue;
-   const m=deepOreMaterials[type]&&y<-16?deepOreMaterials[type]:type===T.GRASS?(dy===1?blockMaterials[T.GRASS]:dy===-1?blockMaterials[T.DIRT]:grassSide):[T.WOOD,T.SNOW_LOG,T.JUNGLE_LOG].includes(type)&&dy?woodEnd:blockMaterials[type];
+   const m=deepOreMaterials[type]&&y<-16?deepOreMaterials[type]:type===T.GRASS?(dy===1?blockMaterials[T.GRASS]:dy===-1?blockMaterials[T.DIRT]:grassSide):[T.WOOD,T.SNOW_LOG,T.JUNGLE_LOG,T.CHERRY_LOG].includes(type)&&dy?(logEnds[type]??woodEnd):blockMaterials[type];
    const bucket=buckets[m];if(!bucket)continue;const start=bucket.p.length/3,shade=.87+((gx*13+gz*7+y*3)&7)*.013;
    for(let corner=0;corner<4;corner++){const v=face.v[corner];bucket.p.push(gx-OFFSET+(type===T.TORCH?.4+v[0]*.2:v[0]),y+(type===T.TORCH?v[1]*.7:[T.WATER,T.LAVA].includes(type)?v[1]*.87:v[1]),gz-OFFSET+(type===T.TORCH?.4+v[2]*.2:v[2]));bucket.n.push(dx,dy,dz);bucket.uv.push(...[[0,0],[0,1],[1,1],[1,0]][corner]);bucket.c.push(shade,shade,shade);}
    bucket.i.push(start,start+1,start+2,start,start+2,start+3);
@@ -216,7 +223,7 @@ function closePanel(){if(!panel)return;if(!returnGrid()){notify('クラフト欄
 function workstation(){camera.updateMatrixWorld();const hit=traceVoxel();if(hit&&hit.distance<=5&&[T.TABLE,T.FURNACE,T.CHEST].includes(hit.type)){openPanel(hit.type===T.TABLE?'table':hit.type===T.FURNACE?'furnace':'chest',{x:hit.x,y:hit.y,z:hit.z,index:index(hit.x,hit.y,hit.z)});return;}const station=nearby(T.TABLE);openPanel(station?'table':'inventory',station);}
 function smelt(key){if(friendPending)return;
  const station=panel?.type==='furnace'?panel:nearby(T.FURNACE),recipe=smeltingRecipes.find(r=>r.id===key);if(!station||!recipe)return;
- let credit=furnaceFuel[station.index]??0;const fuel=['coal','charcoal','log','pineLog','jungleLog','plank'].find(k=>total(k)>(k===recipe.input?1:0));
+ let credit=furnaceFuel[station.index]??0;const fuel=['coal','charcoal','log','pineLog','jungleLog','cherryLog','plank'].find(k=>total(k)>(k===recipe.input?1:0));
  if(!total(recipe.input)||(!fuel&&credit<recipe.time)||furnaceJobs.length>=64){notify('原料と燃料が必要です。燃料は石炭・木炭・原木・木材。');return;}
  consume(recipe.input,1);let used='reserve';if(credit<recipe.time){used=fuel;consume(fuel,1);credit+=['coal','charcoal'].includes(fuel)?32:6;}furnaceFuel[station.index]=credit-recipe.time;
  furnaceJobs.push({id:key,input:recipe.input,fuel:used,remaining:recipe.time,index:station.index});renderInventory();
@@ -233,7 +240,7 @@ function renderInventory(){const hot=$('hotbar');hot.replaceChildren(...bag.slic
  if(panel.type==='chest')$('chestSlots').replaceChildren(...chests[panel.index].map((s,i)=>slotButton(s,i,'chest')));
  if(!$('craftArea').hidden){$('craftGrid').style.gridTemplateColumns=`repeat(${craftSize},var(--slot))`;$('craftGrid').replaceChildren(...craftGrid.slice(0,craftSize*craftSize).map((s,i)=>slotButton(s,i,'craft')));const r=gridRecipe();$('craftOutput').replaceChildren();$('craftOutput').disabled=!r||!roomFor(r.id,r.n);if(r){$('craftOutput').append(icon(r.id));$('craftOutput').append(document.createTextNode(' ×'+r.n));}$('recipeBook').replaceChildren(...availableRecipes().map(r=>{const b=document.createElement('button');b.dataset.recipe=r.id;const needs=ingredients(r);b.className='recipe'+(r.size>craftSize?' locked':'');b.append(icon(r.id));const text=document.createElement('span');text.textContent=`${itemDefs[r.id].name} ×${r.n}`;const small=document.createElement('small');small.textContent=Object.entries(needs).map(([k,n])=>`${itemDefs[k].name}${n}`).join('・')+(r.size>craftSize?' / 作業台':'' );text.append(small);b.append(text);b.onclick=()=>fillRecipe(r);return b;}));}
  $('recipeCount').textContent=`${availableRecipes().length} 種`;if(!$('recipeBook').children.length){const p=document.createElement('p');p.className='slot-guide';p.textContent='今作れるレシピはありません。木や鉱石を集め、作業台でFを押すと種類が増えます。';$('recipeBook').append(p);}
- if(panel.type==='furnace'){$('smeltRecipes').replaceChildren(...smeltingRecipes.filter(r=>total(r.input)>0&&((furnaceFuel[panel.index]??0)>=r.time||['coal','charcoal','log','pineLog','jungleLog','plank'].some(k=>total(k)>(k===r.input?1:0)))).map(r=>{const b=document.createElement('button');b.dataset.smelt=r.id;b.append(icon(r.id));b.append(document.createTextNode(itemDefs[r.input].name+' → '+itemDefs[r.id].name));b.onclick=()=>smelt(r.id);return b;}));$('smeltStatus').textContent=furnaceJobs.length?`精錬中 · 残り ${furnaceJobs.length} 個`:'原料を選んで精錬 → 4秒で完成';}
+ if(panel.type==='furnace'){$('smeltRecipes').replaceChildren(...smeltingRecipes.filter(r=>total(r.input)>0&&((furnaceFuel[panel.index]??0)>=r.time||['coal','charcoal','log','pineLog','jungleLog','cherryLog','plank'].some(k=>total(k)>(k===r.input?1:0)))).map(r=>{const b=document.createElement('button');b.dataset.smelt=r.id;b.append(icon(r.id));b.append(document.createTextNode(itemDefs[r.input].name+' → '+itemDefs[r.id].name));b.onclick=()=>smelt(r.id);return b;}));$('smeltStatus').textContent=furnaceJobs.length?`精錬中 · 残り ${furnaceJobs.length} 個`:'原料を選んで精錬 → 4秒で完成';}
  if(gameMode==='creative')$('creativeItems').replaceChildren(...Object.keys(itemDefs).filter(k=>{const d=itemDefs[k],q=$('itemSearch').value.trim().toLowerCase(),category=$('itemCategory').value;return(!q||d.name.includes(q)||k.toLowerCase().includes(q))&&(category==='all'||category==='tool'&&d.tool||category==='armor'&&d.slot||category==='block'&&d.block!==null||category==='material'&&!d.tool&&!d.slot&&d.block===null);}).map(k=>{const b=document.createElement('button');b.className='slot';b.title=itemDefs[k].name;b.append(icon(k));b.onclick=()=>{if(!friendPending)gain(k,itemDefs[k].max);};return b;}));
 }
 $('discard').onclick=()=>friendAction(()=>{if(heldSlot){const slots=slotList(heldSlot.kind);if(slots)slots[heldSlot.index]=null;heldSlot=null;renderInventory();notify('選んだスタックを捨てました。');}});
@@ -241,13 +248,13 @@ $('inventoryToggle').onclick=()=>openPanel();$('craftToggle').onclick=workstatio
 
 $('itemSearch').oninput=renderInventory;$('itemCategory').onchange=renderInventory;
 $('playMode').onclick=()=>{gameMode=gameMode==='survival'?'creative':'survival';renderInventory();notify(gameMode==='creative'?'クリエイティブ：Iの素材一覧から自由に建築できます。':'サバイバル：採掘・クラフトして集めた素材を使います。');};
-const drops={[T.DIRT]:'dirt',[T.GRASS]:'dirt',[T.STONE]:'stone',[T.DEEP]:'stone',[T.SNOW]:'snow',[T.WOOD]:'log',[T.ROOF]:'plank',[T.RUIN]:'moss',[T.LEAVES]:'leaves',[T.PLANK]:'plank',[T.COBBLE]:'stone',[T.COAL]:'coal',[T.IRON]:'ironOre',[T.GOLD]:'goldOre',[T.TABLE]:'table',[T.FURNACE]:'furnace',[T.CHEST]:'chest',[T.GLASS]:'glass',[T.SAND]:'sand',[T.GLOW]:'amethyst',[T.TORCH]:'torch',[T.DIAMOND]:'diamond',[T.EMERALD]:'emerald',[T.REDSTONE]:'redstone',[T.LAPIS]:'lapis',[T.COPPER]:'copperOre',[T.COPPER_BLOCK]:'copperBlock',[T.IRON_BLOCK]:'ironBlock',[T.GOLD_BLOCK]:'goldBlock',[T.DIAMOND_BLOCK]:'diamondBlock',[T.EMERALD_BLOCK]:'emeraldBlock',[T.OBSIDIAN]:'obsidian',[T.BRICK]:'brickBlock',[T.BOOKSHELF]:'bookshelf',[T.CACTUS]:'cactus',[T.MUSHROOM]:'mushroom',[T.BASALT]:'basalt',[T.CLAY]:'clay',[T.SNOW_LOG]:'pineLog',[T.PINE_LEAVES]:'pineLeaves',[T.JUNGLE_LOG]:'jungleLog',[T.JUNGLE_LEAVES]:'jungleLeaves',[T.RED_SAND]:'redSand',[T.ICE]:'ice',[T.WOOL]:'wool'};
+const drops={[T.CHERRY_LOG]:'cherryLog',[T.CHERRY_LEAVES]:'cherryLeaves',[T.SCULK]:'sculk',[T.TUFF]:'tuff',[T.AGED_COPPER]:'agedCopper',[T.DIRT]:'dirt',[T.GRASS]:'dirt',[T.STONE]:'stone',[T.DEEP]:'stone',[T.SNOW]:'snow',[T.WOOD]:'log',[T.ROOF]:'plank',[T.RUIN]:'moss',[T.LEAVES]:'leaves',[T.PLANK]:'plank',[T.COBBLE]:'stone',[T.COAL]:'coal',[T.IRON]:'ironOre',[T.GOLD]:'goldOre',[T.TABLE]:'table',[T.FURNACE]:'furnace',[T.CHEST]:'chest',[T.GLASS]:'glass',[T.SAND]:'sand',[T.GLOW]:'amethyst',[T.TORCH]:'torch',[T.DIAMOND]:'diamond',[T.EMERALD]:'emerald',[T.REDSTONE]:'redstone',[T.LAPIS]:'lapis',[T.COPPER]:'copperOre',[T.COPPER_BLOCK]:'copperBlock',[T.IRON_BLOCK]:'ironBlock',[T.GOLD_BLOCK]:'goldBlock',[T.DIAMOND_BLOCK]:'diamondBlock',[T.EMERALD_BLOCK]:'emeraldBlock',[T.OBSIDIAN]:'obsidian',[T.BRICK]:'brickBlock',[T.BOOKSHELF]:'bookshelf',[T.CACTUS]:'cactus',[T.MUSHROOM]:'mushroom',[T.BASALT]:'basalt',[T.CLAY]:'clay',[T.SNOW_LOG]:'pineLog',[T.PINE_LEAVES]:'pineLeaves',[T.JUNGLE_LOG]:'jungleLog',[T.JUNGLE_LEAVES]:'jungleLeaves',[T.RED_SAND]:'redSand',[T.ICE]:'ice',[T.WOOL]:'wool'};
 function miningInfo(hit){return {...miningProfile(hit.type,held()?itemDefs[held().id]:null,gameMode==='creative'),drop:hit.type===T.LEAVES&&hash(hit.x,hit.y,hit.z)>.94?'apple':drops[hit.type]};}
 function beginMine(){if(!entered||panel||!$('friendsPanel').hidden||mode!=='build'||friendPending)return;camera.updateMatrixWorld();const h=traceVoxel();if(strikeMonster(h)){mining=null;return;}if(!canMine(h)){notify('このブロックは掘れません。線路の土台はQでレールを外してから掘れます。');return;}const info=miningInfo(h);mining={...h,progress:0,...info};handSwing=.3;}
 function mineBlockLocal(h){const info=miningInfo(h);if(info.drop&&gameMode==='survival'&&!roomFor(info.drop,1)){notify('インベントリがいっぱいです。チェストへ移すか、ブロックを置いて空きを作ろう。');return;}
  if(h.type===T.CHEST&&!Object.hasOwn(chests,index(h.x,h.y,h.z))){const loot=world.lootAt(h.x,h.y,h.z);if(loot.length&&!lootedChestKeys.has(index(h.x,h.y,h.z))){notify('宝箱の中身をFで取り出してから壊してください。');return;}}
  if(h.type===T.CHEST&&chests[index(h.x,h.y,h.z)]?.some(Boolean)){notify('中身を取り出してからチェストを壊してください。');return;}if(furnaceJobs.some(j=>j.index===index(h.x,h.y,h.z))){notify('精錬が終わってから、かまどを壊してください。');return;}
- blockParticles.burst(h.x-OFFSET+.5,h.y+.5,h.z-OFFSET+.5,h.type);gameAudio.play([T.WOOD,T.PLANK,T.SNOW_LOG,T.JUNGLE_LOG,T.CHEST,T.TABLE].includes(h.type)?'wood':'stone');
+ blockParticles.burst(h.x-OFFSET+.5,h.y+.5,h.z-OFFSET+.5,h.type);gameAudio.play([T.WOOD,T.PLANK,T.SNOW_LOG,T.JUNGLE_LOG,T.CHERRY_LOG,T.CHEST,T.TABLE].includes(h.type)?'wood':'stone');
  setVoxel(h.x,h.y,h.z,T.AIR);if(gameMode==='survival'&&info.drop)gain(info.drop);if(h.type===T.CHEST)delete chests[index(h.x,h.y,h.z)];if(h.type===T.FURNACE)delete furnaceFuel[index(h.x,h.y,h.z)];
  const s=held();if(gameMode==='survival'&&s&&itemDefs[s.id].tool){if(!--s.durability){bag[selected]=null;notify('道具が壊れました。');}renderInventory();}mined++;handSwing=.3;flushChunks();if(h.type===T.TORCH)refreshTorches();updateMission();}
 function tickMining(dt){if(mineHeld&&!mining)beginMine();if(!mining)return;camera.updateMatrixWorld();const h=traceVoxel();if(panel||mode!=='build'||!h||h.x!==mining.x||h.y!==mining.y||h.z!==mining.z){mining=null;return;}mining.progress+=dt;$('breakProgress').hidden=false;$('breakFill').style.width=Math.min(100,mining.progress/mining.time*100)+'%';handSwing=.2;if(mining.progress>=mining.time){mineBlock(mining);mining=null;$('breakProgress').hidden=true;if(mineHeld)beginMine();}}
@@ -428,8 +435,8 @@ function updateExploration(dt,time){
   const depth = inside(c.x, c.z) ? Math.max(0, height(c.x,c.z) - feet) : 0, underground = depth > 2;
   caveMix += ((underground ? 1 : 0) - caveMix) * Math.min(1, dt * 3); ambient.intensity=THREE.MathUtils.lerp((nightAt(worldTime)?.18:.65)+1.3*daylight,.26,caveMix);sun.intensity=THREE.MathUtils.lerp(2.5*daylight,.06,caveMix); lantern.intensity = caveMix * 7;
   scene.background.set('#19344b').lerp(new THREE.Color('#a4d8ed'),daylight).lerp(new THREE.Color('#101f2b'), caveMix); scene.fog.color.copy(scene.background); scene.fog.near = THREE.MathUtils.lerp(viewRadius*CHUNK*.55,16,caveMix); scene.fog.far = THREE.MathUtils.lerp(viewRadius*CHUNK*.97,Math.min(42,viewRadius*CHUNK*.9),caveMix);
-  const landmark = world.structuresNear(c.x,c.z,20).find(s => Math.hypot(c.x - s.x, c.z - s.z) < 6 && Math.abs(feet - s.y) < 12);
-  $('location').textContent = `高度 ${Math.round(feet)} m · X${c.x} Z${c.z} · ${underground ? `地下 ${Math.round(depth)} m` : landmark?landmark.name:world.biome(c.x,c.z).name}`;
+  const landmark = world.structuresNear(c.x,c.z,20).find(s => (['ancient_city','trial_chamber'].includes(s.type)?c.x>=s.bounds.minX&&c.x<=s.bounds.maxX&&c.z>=s.bounds.minZ&&c.z<=s.bounds.maxZ:Math.hypot(c.x-s.x,c.z-s.z)<6)&&Math.abs(feet-s.y)<12);
+  $('location').textContent = `高度 ${Math.round(feet)} m · X${c.x} Z${c.z} · ${landmark?landmark.name:underground ? `地下 ${Math.round(depth)} m`:world.biome(c.x,c.z).name}`;
   if (entered && inCave(camera.position.x, camera.position.z, feet)) { if (!caveFound) { caveFound = true; updateMission(); notify('✧ 地底の大洞窟を発見！枝分かれする坑道と鉱脈。その先まで線路をつなごう。'); } if (mode === 'ride' && connectedToCave() && !caveRidden) { caveRidden = true; updateMission(); notify('✦ 冒険達成！自分の線路で、深い地底の大洞窟に到着しました。'); } }
 }
 function clearSight(x,y,z,tx,ty,tz){const length=Math.hypot(tx-x,ty-y,tz-z),steps=Math.ceil(length*2);for(let i=1;i<steps;i++){const f=i/steps,c=cellAt(x+(tx-x)*f,z+(tz-z)*f);if(solid(c.x,Math.floor(y+(ty-y)*f),c.z))return false;}return true;}
@@ -470,7 +477,7 @@ function drawMap(){
  g.fillStyle='#182a27';g.fillRect(0,0,600,420);
  for(let z=0;z<rows;z++)for(let x=0;x<cols;x++){const gx=rx+x-10,gz=rz+z-7,seen=visitedRegions.has(`${gx},${gz}`);g.fillStyle=seen?world.biome(gx*64+32,gz*64+32).color:'#273b35';g.fillRect(x*tile+1,z*tile+1,tile-2,tile-2);if(seen){for(const structure of world.structuresNear(gx*64+32,gz*64+32,44)){if(Math.floor(structure.x/64)!==gx||Math.floor(structure.z/64)!==gz)continue;g.fillStyle='#f4d68c';g.fillRect(x*tile+(structure.x-gx*64)/64*tile-2,z*tile+(structure.z-gz*64)/64*tile-2,4,4);}}}
  const px=10*tile+(c.x-rx*64)/64*tile,pz=7*tile+(c.z-rz*64)/64*tile;g.fillStyle='#fff5cd';g.beginPath();g.arc(px,pz,5,0,Math.PI*2);g.fill();g.strokeStyle='#fff5cd';g.beginPath();g.moveTo(px,pz);g.lineTo(px-Math.sin(yaw)*14,pz-Math.cos(yaw)*14);g.stroke();
- $('mapDetail').textContent=`現在地 X ${c.x} / Z ${c.z} · 発見 ${visitedBiomes.size} / 8 バイオーム · ${visitedRegions.size} 地域 · 黄色は構造物`;
+ $('mapDetail').textContent=`現在地 X ${c.x} / Z ${c.z} · 発見 ${visitedBiomes.size} / 9 バイオーム · ${visitedRegions.size} 地域 · 黄色は構造物`;
 }
 function closeMap(lock=true){$('mapPanel').hidden=true;keys.clear();if(lock&&entered&&!panel&&!matchMedia('(pointer:coarse)').matches)renderer.domElement.requestPointerLock()?.catch(()=>{});}
 function toggleMap(){if(!$('mapPanel').hidden){closeMap();return;}if(!entered)return;if(panel){closePanel();if(panel)return;}keys.clear();mining=null;mineHeld=false;if(document.pointerLockElement)document.exitPointerLock();$('mapPanel').hidden=false;drawMap();}
@@ -493,7 +500,7 @@ window.blockCoaster={
  voxel:(x,y,z)=>voxel(x,y,z),dimensions:()=>({size:64,infinite:true,minY:MIN_Y,maxY:MAX_Y,chunk:CHUNK}),
  worldInfo:(x,z)=>({height:height(x,z),biome:world.biome(x,z)}),
  streamingStats:()=>({rendered:chunks.size,pending:chunkQueue.length,viewRadius,...world.stats()}),
- artStats:()=>({terrainReady:!!terrainAtlasImage,terrainTiles:16,ready:artReady,generatedIcons:104,source:'ChatGPT image generation'}),equipmentState:()=>({slots:equipment.map(s=>s?{...s}:null),armor:armorPoints()}),itemCatalog:()=>JSON.parse(JSON.stringify(itemDefs)),availableRecipes:()=>availableRecipes().map(r=>({id:r.id,n:r.n})),
+ artStats:()=>({terrainReady:!!terrainAtlasImage&&!!explorationAtlasImage,terrainTiles:24,ready:artReady,generatedIcons:109,source:'ChatGPT image generation'}),equipmentState:()=>({slots:equipment.map(s=>s?{...s}:null),armor:armorPoints()}),itemCatalog:()=>JSON.parse(JSON.stringify(itemDefs)),availableRecipes:()=>availableRecipes().map(r=>({id:r.id,n:r.n})),
 };
 
 function mineBlock(...args){return friendAction(()=>mineBlockLocal(...args));}

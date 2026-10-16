@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { generatedArtSheets } from '../art.js';
 import { BLOCKS } from '../world.js';
 import { itemDefs, recipes, equipmentSlots, smeltingRecipes, drawItemIcon, setItemAtlas } from '../items.js';
 
@@ -129,7 +130,7 @@ const equipmentMapping = [
   'coal', 'ironOre', 'goldOre', 'copperOre', 'iron', 'gold', 'copper', 'diamond',
   'emerald', 'redstone', 'lapis', 'amethyst', 'stick', 'apple', 'goldenApple', 'torch',
 ];
-const materialsMapping = Object.keys(itemDefs).filter(id => !equipmentMapping.includes(id));
+const materialsMapping = generatedArtSheets[1].mapping;
 assert.equal(equipmentMapping.length, 64);
 assert.equal(materialsMapping.length, 40);
 setItemAtlas(image, equipmentMapping);

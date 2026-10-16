@@ -1,5 +1,5 @@
 // Two-player WebRTC data connection. Signaling is exchanged by the players.
-const PROTOCOL=2,MAX_MESSAGE=8*1024*1024;
+const PROTOCOL=3,MAX_MESSAGE=8*1024*1024;
 export function encodeInvitation(description){return 'BC1.'+btoa(unescape(encodeURIComponent(JSON.stringify({v:PROTOCOL,type:description.type,sdp:description.sdp}))));}
 export function decodeInvitation(text,type){
  let input=String(text).trim();try{const url=new URL(input);input=new URLSearchParams(url.hash.slice(1)).get('friend')||input;}catch{}

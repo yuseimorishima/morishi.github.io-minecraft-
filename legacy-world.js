@@ -103,7 +103,7 @@ for(const [x,z]of[[35,44],[28,35],[48,52]]){const c=caveCells.get(id(x,z))?.[0];
 for(let z=45;z<=48;z++)for(let x=17;x<=20;x++){const c=caveCells.get(id(x,z))?.[0];if(c&&voxel(x,c.floor,z)===T.AIR)put(x,c.floor,z,T.WATER);}
 // Sparse mineral veins reward exploring deeper layers; structures are retained.
 for(let i=0;i<plane;i++)world[i]=T.DEEP;
-for(const[type,count,low,high,radius]of [[T.COAL,28,-12,12,1.7],[T.IRON,24,-42,4,1.6],[T.COPPER,18,-20,12,1.6],[T.GOLD,10,-45,-22,1.3],[T.DIAMOND,7,-46,-36,1.1],[T.EMERALD,3,12,36,1],[T.REDSTONE,14,-46,-23,1.4],[T.LAPIS,10,-42,-9,1.3]])for(let k=0;k<count;k++){
+for(const[type,count,low,high,radius]of [[T.COAL,40,-12,12,1.7],[T.IRON,36,-42,4,1.6],[T.COPPER,26,-20,12,1.6],[T.GOLD,10,-45,-22,1.3],[T.DIAMOND,7,-46,-36,1.1],[T.EMERALD,3,12,36,1],[T.REDSTONE,14,-46,-23,1.4],[T.LAPIS,10,-42,-9,1.3]])for(let k=0;k<count;k++){
  const cx=3+Math.floor(hash(type,k,17)*58),cz=3+Math.floor(hash(k,type,29)*58),cy=Math.floor(low+hash(type,k,41)*(high-low));
  for(let z=cz-3;z<=cz+3;z++)for(let x=cx-3;x<=cx+3;x++)for(let y=cy-3;y<=cy+3;y++)if(((x-cx)/radius)**2+((y-cy)/(radius*.8))**2+((z-cz)/radius)**2<1&&[T.STONE,T.DEEP].includes(voxel(x,y,z)))put(x,y,z,type);
 }

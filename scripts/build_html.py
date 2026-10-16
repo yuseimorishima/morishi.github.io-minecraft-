@@ -11,7 +11,7 @@ def module(name, exports, prelude=''):
     body = re.sub(r'\bexport\s+(?=(?:const|let|class|function|async)\b)', '', source(name))
     if name == 'art.js':
         import base64
-        for asset in ('equipment-atlas.png', 'materials-atlas.png'):
+        for asset in ('equipment-atlas.png', 'materials-atlas.png', 'exploration-atlas.png'):
             data = base64.b64encode((root / 'assets' / asset).read_bytes()).decode()
             body = body.replace("'assets/" + asset + "'", "'data:image/png;base64," + data + "'")
     return '(() => {\n' + prelude + '\n' + body + '\nreturn {' + ','.join(exports) + '};\n})();'
@@ -32,6 +32,7 @@ game += 'const FriendsModule = ' + module('friends.js', ['FriendConnection','cle
 game += 'const ExperienceModule = ' + module('experience.js', ['createGameAudio','createBlockParticles','createVoxelSky']) + '\nconst {createGameAudio,createBlockParticles,createVoxelSky} = ExperienceModule;\n'
 import base64
 game += source('game.js').replace("'assets/terrain-atlas.png'", "'data:image/png;base64," + base64.b64encode((root / 'assets/terrain-atlas.png').read_bytes()).decode() + "'")
+game = game.replace("'assets/exploration-atlas.png'", "'data:image/png;base64," + base64.b64encode((root / 'assets/exploration-atlas.png').read_bytes()).decode() + "'")
 library = (root / 'vendor/three.module.js').read_text()
 library, count = re.subn(r'\nexport \{[^}]+\};\s*$', '', library)
 assert count == 1, 'Unexpected Three.js export layout'

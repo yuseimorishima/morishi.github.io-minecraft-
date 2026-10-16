@@ -44,7 +44,7 @@ check('Unknown items, bad stacks, durability and misplaced armor are rejected',(
 
 check('Noncanonical keys, impossible coordinates and bedrock edits are rejected',()=>{
  for(const key of ['01,5,2','-0,5,2','1,5.5,2','+1,5,2','10000001,5,2','1,-64,2','1,112,2'])expectInvalid(s=>s.edits=[[key,BLOCKS.DIRT]]);
- expectInvalid(s=>s.edits=[['1,5,2',BLOCKS.BEDROCK]]);expectInvalid(s=>s.edits=[['1,5,2',49]]);expectInvalid(s=>s.edits=[['1,5,2',BLOCKS.DIRT],['1,5,2',BLOCKS.STONE]]);expectInvalid(s=>s.player=[10000001,50,0]);expectInvalid(s=>s.view=[0,1.6]);expectInvalid(s=>s.health=0);expectInvalid(s=>s.visitedRegions=['00,0']);expectInvalid(s=>s.visitedBiomes=['removedBiome']);
+ expectInvalid(s=>s.edits=[['1,5,2',BLOCKS.BEDROCK]]);expectInvalid(s=>s.edits=[['1,5,2',255]]);expectInvalid(s=>s.edits=[['1,5,2',BLOCKS.DIRT],['1,5,2',BLOCKS.STONE]]);expectInvalid(s=>s.player=[10000001,50,0]);expectInvalid(s=>s.view=[0,1.6]);expectInvalid(s=>s.health=0);expectInvalid(s=>s.visitedRegions=['00,0']);expectInvalid(s=>s.visitedBiomes=['removedBiome']);
  const s=snapshot();s.edits=[['1,-63,2',BLOCKS.AIR]];const bedrockWorld={baseVoxel:()=>BLOCKS.BEDROCK};assert.throws(()=>validateSnapshot(s,{...options,world:bedrockWorld}),/bedrock edit/);
 });
 
@@ -69,3 +69,5 @@ check('Corrupt legacy fields are rejected instead of discarded by migration',()=
 });
 
 console.log('Save validation and migration tests passed.');
+
+check('Cherry discovery and new building materials survive save validation',()=>{const s=snapshot();s.visitedBiomes=['plains','cherry'];s.edits=[['-90,20,-100',BLOCKS.CHERRY_LOG],['-91,20,-100',BLOCKS.SCULK]];s.bag[0]={id:'cherryLog',count:3};const v=validateSnapshot(s,options).data;assert.deepEqual(v.visitedBiomes,s.visitedBiomes);assert.deepEqual(v.edits,s.edits);assert.deepEqual(v.bag[0],s.bag[0]);});
