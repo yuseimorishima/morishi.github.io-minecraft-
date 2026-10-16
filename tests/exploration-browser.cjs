@@ -43,7 +43,14 @@ const {chromium}=require('playwright');
   await page.keyboard.press('KeyF');await page.waitForFunction(()=>!document.getElementById('inventory').hidden);
   assert.match(await page.locator('#inventoryTitle').innerText(),/チェスト/);
   assert((await state()).chests[`${s.x+dx},${s.y},${s.z+dz}`].some(Boolean));
-  await page.keyboard.press('Escape');
+  if(type==='ancient_city'){
+   const st=await state(),slots=st.chests[`${s.x+dx},${s.y},${s.z+dz}`],gearSlot=slots.findIndex(v=>v&&/^(iron|diamond)(Pick|Sword|Helmet|Boots)$/.test(v.id));
+   assert(gearSlot>=0);const reward={...slots[gearSlot]};assert(reward.durability>0);assert(slots.filter(Boolean).length>=6);
+   await page.locator(`#chestSlots [data-slot="${gearSlot}"]`).click();await page.locator('#bag [data-slot="1"]').click();
+   await page.keyboard.press('Escape');await page.locator('#save').click();await page.locator('#load').click();
+   assert.deepEqual((await state()).bag[1],reward);assert.equal((await state()).chests[`${s.x+dx},${s.y},${s.z+dz}`][gearSlot],null);
+   console.log('PASS ancient city guaranteed gear retains durability through transfer and save without refilling');
+  }else await page.keyboard.press('Escape');
   console.log('PASS '+type+' renders its rooms, HUD discovery and usable natural treasure');
  }
  assert.deepEqual(errors,[]);console.log('PASS no browser runtime errors');

@@ -90,6 +90,20 @@ check('Natural treasure chests give small supplies with occasional precious rewa
  assert.ok(chests>100);assert.ok(precious>0&&precious/chests<.18,`precious loot ${precious}/${chests}`);
 });
 
+check('Ancient cities guarantee equipment and useful supplies without upgrading ordinary chests',()=>{
+ const w=new VoxelWorld(),cities=w.structuresNear(0,0,700).filter(s=>s.type==='ancient_city');let opened=0,diamondGear=0,ironGear=0,diamonds=0;
+ for(const s of cities)for(const dx of[-14,18])for(const dz of[-14,18]){
+  const loot=w.lootAt(s.x+dx,s.y,s.z+dz);assert.ok(loot.length>=6&&loot.length<=8);
+  const gear=loot.filter(i=>/^(iron|diamond)(Pick|Sword|Helmet|Boots)$/.test(i.id));assert.equal(gear.length,1);assert.equal(gear[0].count,1);
+  if(gear[0].id.startsWith('diamond'))diamondGear++;else ironGear++;
+  if(loot.some(i=>i.id==='diamond'))diamonds++;
+  assert.ok(loot.some(i=>i.id==='iron'&&i.count>=4));assert.ok(loot.some(i=>i.id==='gold'&&i.count>=2));assert.ok(loot.some(i=>i.id==='torch'&&i.count>=8));
+  assert.ok(!loot.some(i=>['plank','apple'].includes(i.id)));
+  assert.deepEqual(loot,new VoxelWorld().lootAt(s.x+dx,s.y,s.z+dz));opened++;
+ }
+ assert.ok(opened>=40);assert.ok(ironGear>diamondGear&&diamondGear>0);assert.ok(diamonds>0&&diamonds<opened*.6);
+});
+
 check('Cherry groves grow harvestable pink canopies and natural wood',()=>{
  const w=new VoxelWorld();let logs=0,leaves=0;
  for(let cz=-20;cz<=-17;cz++)for(let cx=-18;cx<=-15;cx++){const c=w.chunk(cx,cz);for(const t of c.data){if(t===B.CHERRY_LOG)logs++;if(t===B.CHERRY_LEAVES)leaves++;}}
